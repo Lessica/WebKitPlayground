@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path("/Volumes/OPTANE/WebKitPlayground")
 REPORT = ROOT / "samples/abi-report-20260328/full_report.json"
-BUILT = ROOT / "WebKit-iOS16.4.1/WebKitBuild/Release-iphoneos"
+BUILT = ROOT / "WebKit/WebKitBuild/Release-iphoneos"
 SPLIT = ROOT / "samples/device-dsc-split"
 OUT = ROOT / "samples/abi-report-20260328/config_gap_analysis.json"
 

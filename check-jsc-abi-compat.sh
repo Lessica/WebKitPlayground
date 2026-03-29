@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_NAME="$(basename "$0")"
 
-DEFAULT_BUILD_DIR="${SCRIPT_DIR}/WebKit-iOS16.4.1/WebKitBuild/Release-iphoneos"
+DEFAULT_BUILD_DIR="${SCRIPT_DIR}/WebKit/WebKitBuild/Release-iphoneos"
 if [[ ! -d "${DEFAULT_BUILD_DIR}" ]]; then
     DEFAULT_BUILD_DIR="${SCRIPT_DIR}/WebKitBuild/Release-iphoneos"
 fi

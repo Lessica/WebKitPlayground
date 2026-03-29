@@ -234,8 +234,8 @@ if ! command -v ldid >/dev/null 2>&1; then
     exit 1
 fi
 
-WEBKIT_PROCESS_ENTITLEMENTS="${SCRIPT_DIR}/WebKit-iOS16.4/Source/WebKit/Scripts/process-entitlements.sh"
-JSC_PROCESS_ENTITLEMENTS="${SCRIPT_DIR}/WebKit-iOS16.4/Source/JavaScriptCore/Scripts/process-entitlements.sh"
+WEBKIT_PROCESS_ENTITLEMENTS="${SCRIPT_DIR}/WebKit/Source/WebKit/Scripts/process-entitlements.sh"
+JSC_PROCESS_ENTITLEMENTS="${SCRIPT_DIR}/WebKit/Source/JavaScriptCore/Scripts/process-entitlements.sh"
 ENTITLEMENTS_WORK_DIR="${WORK_DIR}/entitlements"
 mkdir -p "${ENTITLEMENTS_WORK_DIR}"
 

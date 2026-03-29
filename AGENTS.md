@@ -108,12 +108,12 @@ sim-webkit-env.sh clear [device_udid_or_booted]
 sim-webkit-env.sh bounce [device_udid_or_booted]
 ```
 
-示例（以 WebKit-iOS16.4 为例）：
+示例：
 
 ```bash
 # 1) 注入 DYLD 环境变量
 /Volumes/OPTANE/WebKitPlayground/sim-webkit-env.sh set \
-/Volumes/OPTANE/WebKitPlayground/WebKit-iOS16.4/WebKitBuild/Debug-iphonesimulator \
+/Volumes/OPTANE/WebKitPlayground/WebKit_iOS_16.4/WebKitBuild/Debug-iphonesimulator \
 4EB1CA33-F5EC-47E0-8098-9935621B225D
 
 # 2) 重启 backboardd 使主屏启动链路读取新环境
