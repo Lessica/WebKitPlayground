@@ -2,13 +2,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SCRIPT_NAME="$(basename "$0")"
 
-DEFAULT_BUILD_DIR="${SCRIPT_DIR}/WebKit/WebKitBuild/Release-iphoneos"
+DEFAULT_BUILD_DIR="${ROOT_DIR}/WebKit/WebKitBuild/Release-iphoneos"
 if [[ ! -d "${DEFAULT_BUILD_DIR}" ]]; then
-    DEFAULT_BUILD_DIR="${SCRIPT_DIR}/WebKitBuild/Release-iphoneos"
+    DEFAULT_BUILD_DIR="${ROOT_DIR}/WebKitBuild/Release-iphoneos"
 fi
-DEFAULT_STOCK_JSC="${SCRIPT_DIR}/samples/device-dsc-split/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore"
+DEFAULT_STOCK_JSC="${ROOT_DIR}/samples/device-dsc-split/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore"
 
 BUILD_DIR="${DEFAULT_BUILD_DIR}"
 PACKAGE_PATH=""

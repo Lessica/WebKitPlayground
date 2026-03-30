@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import json
 import re
 import subprocess
 from pathlib import Path
+
+from scriptlib import default_release_build_root, default_split_root, repo_root_from_script
 
 
 def run(cmd: list[str]) -> str:
@@ -49,13 +53,38 @@ def read_imports_from_provider(client_bin: Path, arch: str, provider_short_name:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Check ABI compatibility between DSC clients and built WebKit family binaries.")
+    repo_root = repo_root_from_script(__file__)
+    ap = argparse.ArgumentParser(
+        description="Check ABI compatibility between DSC clients and built WebKit family binaries.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    ap.add_argument("--repo-root", type=Path, default=repo_root, help="Project root used for resolving default paths.")
     ap.add_argument("--dsc", required=True, type=Path, help="dyld_shared_cache_arm64e path")
-    ap.add_argument("--split-root", required=True, type=Path, help="output dir of `ipsw dyld split`")
-    ap.add_argument("--build-root", required=True, type=Path, help="WebKitBuild/Release-iphoneos root")
+    ap.add_argument(
+        "--split-root",
+        type=Path,
+        default=None,
+        help="Output dir of `ipsw dyld split`.",
+    )
+    ap.add_argument(
+        "--build-root",
+        type=Path,
+        default=None,
+        help="WebKitBuild/Release-iphoneos root.",
+    )
     ap.add_argument("--arch", default="arm64e")
-    ap.add_argument("--out", required=True, type=Path, help="output json report path")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Output JSON report path.",
+    )
     args = ap.parse_args()
+    args.split_root = args.split_root or default_split_root(args.repo_root)
+    args.build_root = args.build_root or default_release_build_root(args.repo_root)
+    args.out = args.out or (args.repo_root / "samples" / "check_dsc_abi_report.json")
+    if args.build_root is None:
+        ap.error("Unable to infer --build-root. Pass it explicitly.")
 
     providers = [
         {
@@ -94,6 +123,13 @@ def main() -> int:
         "arch": args.arch,
         "providers": {},
     }
+
+    if not args.dsc.is_file():
+        raise SystemExit(f"DSC file does not exist: {args.dsc}")
+    if not args.split_root.is_dir():
+        raise SystemExit(f"Split root does not exist: {args.split_root}")
+    if not args.build_root.is_dir():
+        raise SystemExit(f"Build root does not exist: {args.build_root}")
 
     for p in providers:
         clients = parse_dsc_clients(args.dsc, p["provider_path"])

@@ -10,9 +10,9 @@ Usage:
   sim-webkit-env.sh bounce [device_udid_or_booted]
 
 Examples:
-  sim-webkit-env.sh set /Volumes/OPTANE/WebKitPlayground/WebKitPlayer-WebKit/WebKitBuild/Debug-iphonesimulator
-  sim-webkit-env.sh show
-  sim-webkit-env.sh bounce
+  scripts/sim-webkit-env.sh set /Volumes/OPTANE/WebKitPlayground/WebKitPlayer-WebKit/WebKitBuild/Debug-iphonesimulator
+  scripts/sim-webkit-env.sh show
+  scripts/sim-webkit-env.sh bounce
 EOF
   exit 1
 fi

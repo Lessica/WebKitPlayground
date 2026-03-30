@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SCRIPT_NAME="$(basename "$0")"
 PACKAGE_PATH=""
 SSH_TARGET="iproxy"
@@ -12,8 +13,8 @@ REMOTE_DIR="/var/root"
 KEEP_REMOTE_PACKAGE=0
 INCLUDE_JSC=0
 SKIP_ABI_CHECK=0
-STOCK_JSC="${SCRIPT_DIR}/samples/device-dsc-split/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore"
-STOCK_WEBCORE="${SCRIPT_DIR}/samples/device-dsc-split/System/Library/PrivateFrameworks/WebCore.framework/WebCore"
+STOCK_JSC="${ROOT_DIR}/samples/device-dsc-split/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore"
+STOCK_WEBCORE="${ROOT_DIR}/samples/device-dsc-split/System/Library/PrivateFrameworks/WebCore.framework/WebCore"
 
 usage() {
     cat <<EOF
@@ -24,7 +25,7 @@ Usage: ${SCRIPT_NAME} [--package <tar.gz-path>]
 
 Default behavior:
   If --package is not provided, use the newest:
-  ${SCRIPT_DIR}/webkit-device-package-*.tar.gz
+  ${ROOT_DIR}/webkit-device-package-*.tar.gz
 
 Default SSH (iproxy style):
   --ssh-target ${SSH_TARGET}
@@ -96,7 +97,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${PACKAGE_PATH}" ]]; then
-    PACKAGE_PATH="$(ls -1t "${SCRIPT_DIR}"/webkit-device-package-*.tar.gz 2>/dev/null | head -n1 || true)"
+    PACKAGE_PATH="$(ls -1t "${ROOT_DIR}"/webkit-device-package-*.tar.gz 2>/dev/null | head -n1 || true)"
 fi
 
 if [[ -z "${PACKAGE_PATH}" ]]; then
@@ -115,7 +116,7 @@ if [[ "${INCLUDE_JSC}" != "1" && "${SKIP_ABI_CHECK}" != "1" ]]; then
         echo "ABI check script not found: ${ABI_CHECK_SCRIPT}" >&2
         exit 1
     fi
-    echo "[0/4] Running ABI gate against stock JSC..."
+    echo "[1/4] Running ABI gate against stock JSC..."
     zsh "${ABI_CHECK_SCRIPT}" --package "${PACKAGE_PATH}" --stock-jsc "${STOCK_JSC}"
 
     LAYOUT_CHECK_SCRIPT="${SCRIPT_DIR}/check-webcore-layout-compat.sh"
@@ -123,7 +124,7 @@ if [[ "${INCLUDE_JSC}" != "1" && "${SKIP_ABI_CHECK}" != "1" ]]; then
         echo "Layout check script not found: ${LAYOUT_CHECK_SCRIPT}" >&2
         exit 1
     fi
-    echo "[0.5/4] Running WebCore mixed-mode layout gate..."
+    echo "[2/4] Running WebCore mixed-mode layout gate..."
     zsh "${LAYOUT_CHECK_SCRIPT}" --package "${PACKAGE_PATH}" --stock-webcore "${STOCK_WEBCORE}"
 fi
 
@@ -145,12 +146,12 @@ fi
 
 remote_tar="${REMOTE_DIR}/$(basename "${PACKAGE_PATH}")"
 
-echo "[1/3] Uploading package to device..."
+echo "[3/4] Uploading package to device..."
 ssh "${ssh_extra_args[@]}" "${remote}" "mkdir -p '${REMOTE_DIR}'"
 scp "${scp_extra_args[@]}" "${PACKAGE_PATH}" "${remote}:${remote_tar}"
 echo "Uploaded to: ${remote}:${remote_tar}"
 
-echo "[2/3] Extracting package on device..."
+echo "[4/4] Extracting package on device..."
 ssh "${ssh_extra_args[@]}" "${remote}" '
 set -e
 INCLUDE_JSC='"${INCLUDE_JSC}"'
@@ -197,4 +198,4 @@ if [[ "${KEEP_REMOTE_PACKAGE}" != "1" ]]; then
     ssh "${ssh_extra_args[@]}" "${remote}" "rm -f '${remote_tar}'"
 fi
 
-echo "[3/3] Done."
+echo "[4/4] Done."

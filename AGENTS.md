@@ -18,17 +18,16 @@
 
 请按以下约束执行：
 
-1. WebKit 检出工作副本分支要和 iOS 模拟器版本相近，尽可能一致。  
-2. Xcode 版本（含其 iOS Simulator SDK）也要和 iOS 模拟器版本相近。  
-3. 默认使用调试构建：`--debug`。  
-4. 默认启用 ccache：`--use-ccache WK_USE_CCACHE=YES`。  
-5. 默认并发构建：`--makeargs='-j56'`。  
-6. 默认忽略所有警告（避免 warning 当成 error 阻塞构建）。  
+1. WebKit 检出工作副本分支要和 iOS 模拟器版本相近，尽可能一致。
+2. Xcode 版本（含其 iOS Simulator SDK）也要和 iOS 模拟器版本相近。
+3. 默认使用发布构建（调试构建无法运行）：`--release`。
+4. 默认启用 ccache：`--use-ccache WK_USE_CCACHE=YES`。
+5. 默认忽略所有警告（避免 warning 当成 error 阻塞构建）。
 
 ## 默认构建指令（iOS Simulator）
 
 ```bash
-Tools/Scripts/build-webkit --ios-simulator --debug --use-ccache WK_USE_CCACHE=YES --makeargs='-j56'
+Tools/Scripts/build-webkit --ios-simulator --release --use-ccache WK_USE_CCACHE=YES
 ```
 
 ## 真机构建关键结论（iOS Device）
@@ -36,15 +35,17 @@ Tools/Scripts/build-webkit --ios-simulator --debug --use-ccache WK_USE_CCACHE=YE
 - 真机构建必须使用 `--ios-device`。
 - 必须显式指定 `ARCHS='arm64 arm64e'`。  
   否则构建容易混入 `x86_64`，导致 `iphoneos` 产物链路异常或不完整。
-- 真机产物目录：`WebKitBuild/Debug-iphoneos`（包含 `WebKit.framework`、`WebCore.framework`、`JavaScriptCore.framework` 等）。
+- 真机产物目录：`WebKitBuild/Release-iphoneos`（包含 `WebKit.framework`、`WebCore.framework`、`JavaScriptCore.framework` 等）。
 
 推荐真机构建命令：
 
 ```bash
-Tools/Scripts/build-webkit --ios-device --debug --use-ccache WK_USE_CCACHE=YES ARCHS='arm64 arm64e' GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+Tools/Scripts/build-webkit --ios-device --release --use-ccache \
+WK_USE_CCACHE=YES \
+ARCHS='arm64 arm64e' \
+GCC_TREAT_WARNINGS_AS_ERRORS=NO \
 OTHER_CFLAGS='$(inherited) -Wno-error -Wno-error=strict-prototypes -Wno-strict-prototypes -Wno-error=deprecated-declarations' \
-OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error -Wno-error=deprecated-declarations' \
---makeargs='-j56'
+OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error -Wno-error=deprecated-declarations'
 ```
 
 ## 公开 SDK 对齐固件特性（两层强制开启）
@@ -57,10 +58,11 @@ OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error -Wno-error=deprecated-declarations
 推荐命令（iOS Device / Release）：
 
 ```bash
-Tools/Scripts/build-webkit --ios-device --release --use-ccache WK_USE_CCACHE=YES ARCHS='arm64 arm64e' --jit --dfg-jit --ftl-jit GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+Tools/Scripts/build-webkit --ios-device --release --use-ccache --jit --dfg-jit --ftl-jit \
+WK_USE_CCACHE=YES ARCHS='arm64 arm64e' \
+GCC_TREAT_WARNINGS_AS_ERRORS=NO \
 OTHER_CFLAGS='$(inherited) -Wno-error -Wno-error=strict-prototypes -Wno-strict-prototypes -Wno-error=deprecated-declarations -DENABLE_JIT_OPERATION_VALIDATION=1 -DENABLE_JIT_OPERATION_DISASSEMBLY=1' \
-OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error -Wno-error=deprecated-declarations -DENABLE_JIT_OPERATION_VALIDATION=1 -DENABLE_JIT_OPERATION_DISASSEMBLY=1' \
---makeargs='-j56'
+OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error -Wno-error=deprecated-declarations -DENABLE_JIT_OPERATION_VALIDATION=1 -DENABLE_JIT_OPERATION_DISASSEMBLY=1'
 ```
 
 ## 关于 `--only-webkit`（强约束）
@@ -80,51 +82,52 @@ OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error -Wno-error=deprecated-declarations
 ## 推荐的完整命令（含忽略警告）
 
 ```bash
-Tools/Scripts/build-webkit --ios-simulator --debug --use-ccache WK_USE_CCACHE=YES GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+Tools/Scripts/build-webkit --ios-simulator --release --use-ccache \
+WK_USE_CCACHE=YES \
+GCC_TREAT_WARNINGS_AS_ERRORS=NO \
 OTHER_CFLAGS='$(inherited) -Wno-error -Wno-error=strict-prototypes -Wno-strict-prototypes -Wno-error=deprecated-declarations' \
-OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error -Wno-error=deprecated-declarations' \
---makeargs='-j56'
+OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error -Wno-error=deprecated-declarations'
 ```
 
 ## 备注
 
-- `OTHER_CFLAGS` / `OTHER_CPLUSPLUSFLAGS` 必须带 `$(inherited)`，避免覆盖原有必要编译选项。  
-- 若分支、Xcode SDK、Simulator 版本偏差过大，容易出现构建或链接异常。  
+- `OTHER_CFLAGS` / `OTHER_CPLUSPLUSFLAGS` 必须带 `$(inherited)`，避免覆盖原有必要编译选项。
+- 若分支、Xcode SDK、Simulator 版本偏差过大，容易出现构建或链接异常。
 
-## sim-webkit-env.sh 用法（构建后注入并启动 Safari）
+## scripts/sim-webkit-env.sh 用法（构建后注入并启动 Safari）
 
 脚本路径：
 
 ```bash
-/Volumes/OPTANE/WebKitPlayground/sim-webkit-env.sh
+/Volumes/OPTANE/WebKitPlayground/scripts/sim-webkit-env.sh
 ```
 
 基础命令：
 
 ```bash
-sim-webkit-env.sh set   <webkit_build_dir> [device_udid_or_booted]
-sim-webkit-env.sh show  [device_udid_or_booted]
-sim-webkit-env.sh clear [device_udid_or_booted]
-sim-webkit-env.sh bounce [device_udid_or_booted]
+scripts/sim-webkit-env.sh set   <webkit_build_dir> [device_udid_or_booted]
+scripts/sim-webkit-env.sh show  [device_udid_or_booted]
+scripts/sim-webkit-env.sh clear [device_udid_or_booted]
+scripts/sim-webkit-env.sh bounce [device_udid_or_booted]
 ```
 
 示例：
 
 ```bash
 # 1) 注入 DYLD 环境变量
-/Volumes/OPTANE/WebKitPlayground/sim-webkit-env.sh set \
+/Volumes/OPTANE/WebKitPlayground/scripts/sim-webkit-env.sh set \
 /Volumes/OPTANE/WebKitPlayground/WebKit_iOS_16.4/WebKitBuild/Debug-iphonesimulator \
 4EB1CA33-F5EC-47E0-8098-9935621B225D
 
 # 2) 重启 backboardd 使主屏启动链路读取新环境
-/Volumes/OPTANE/WebKitPlayground/sim-webkit-env.sh bounce dummy 4EB1CA33-F5EC-47E0-8098-9935621B225D
+/Volumes/OPTANE/WebKitPlayground/scripts/sim-webkit-env.sh bounce dummy 4EB1CA33-F5EC-47E0-8098-9935621B225D
 
 # 3) 启动 Safari
 xcrun simctl launch 4EB1CA33-F5EC-47E0-8098-9935621B225D com.apple.mobilesafari
 
 # 4) 校验当前环境变量
-/Volumes/OPTANE/WebKitPlayground/sim-webkit-env.sh show dummy 4EB1CA33-F5EC-47E0-8098-9935621B225D
+/Volumes/OPTANE/WebKitPlayground/scripts/sim-webkit-env.sh show dummy 4EB1CA33-F5EC-47E0-8098-9935621B225D
 
 # 5) 清理环境变量（可选）
-/Volumes/OPTANE/WebKitPlayground/sim-webkit-env.sh clear dummy 4EB1CA33-F5EC-47E0-8098-9935621B225D
+/Volumes/OPTANE/WebKitPlayground/scripts/sim-webkit-env.sh clear dummy 4EB1CA33-F5EC-47E0-8098-9935621B225D
 ```

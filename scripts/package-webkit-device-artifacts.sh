@@ -2,8 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SCRIPT_NAME="$(basename "$0")"
-DEFAULT_SOURCE_DIR="${SCRIPT_DIR}/WebKitBuild/Debug-iphoneos"
+DEFAULT_SOURCE_DIR="${ROOT_DIR}/WebKitBuild/Debug-iphoneos"
 SOURCE_DIR="${DEFAULT_SOURCE_DIR}"
 OUTPUT_TAR=""
 PUSH_TO_DEVICE=0
@@ -81,7 +82,7 @@ fi
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
 if [[ -z "${OUTPUT_TAR}" ]]; then
-    OUTPUT_TAR="${SCRIPT_DIR}/webkit-device-package-${timestamp}.tar.gz"
+    OUTPUT_TAR="${ROOT_DIR}/webkit-device-package-${timestamp}.tar.gz"
 fi
 
 WORK_BASE_DIR="$(cd "$(dirname "${SOURCE_DIR}")" && pwd)"
@@ -96,11 +97,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "[1/5] Copying build products to temporary workspace..."
+echo "[1/6] Copying build products to temporary workspace..."
 mkdir -p "${SOURCE_COPY_DIR}" "${PAYLOAD_DIR}"
 rsync -a "${SOURCE_DIR}/" "${SOURCE_COPY_DIR}/"
 
-echo "[2/5] Resolving all symbolic links in copied tree..."
+echo "[2/6] Resolving all symbolic links in copied tree..."
 targets_to_remove_file="${WORK_DIR}/targets-to-remove.txt"
 : > "${targets_to_remove_file}"
 while IFS= read -r -d '' link_path; do
@@ -130,7 +131,7 @@ fi
 rm -f "${targets_to_remove_file}"
 echo "Resolved symlinks and removed original in-copy targets."
 
-echo "[3/5] Collecting required/recommended/on-demand artifacts..."
+echo "[3/6] Collecting required/recommended/on-demand artifacts..."
 typeset -a required_items=(
     "WebKit.framework"
     "WebCore.framework"
@@ -205,7 +206,7 @@ for item in "${ondemand_items[@]}"; do
     fi
 done
 
-echo "[3.5/5] Pruning non-runtime files..."
+echo "[6/6] Pruning non-runtime files..."
 # 1) Exclude DerivedSources from package payload.
 rm -rf "${PAYLOAD_DIR}/DerivedSources"
 
@@ -234,8 +235,8 @@ if ! command -v ldid >/dev/null 2>&1; then
     exit 1
 fi
 
-WEBKIT_PROCESS_ENTITLEMENTS="${SCRIPT_DIR}/WebKit/Source/WebKit/Scripts/process-entitlements.sh"
-JSC_PROCESS_ENTITLEMENTS="${SCRIPT_DIR}/WebKit/Source/JavaScriptCore/Scripts/process-entitlements.sh"
+WEBKIT_PROCESS_ENTITLEMENTS="${ROOT_DIR}/WebKit/Source/WebKit/Scripts/process-entitlements.sh"
+JSC_PROCESS_ENTITLEMENTS="${ROOT_DIR}/WebKit/Source/JavaScriptCore/Scripts/process-entitlements.sh"
 ENTITLEMENTS_WORK_DIR="${WORK_DIR}/entitlements"
 mkdir -p "${ENTITLEMENTS_WORK_DIR}"
 

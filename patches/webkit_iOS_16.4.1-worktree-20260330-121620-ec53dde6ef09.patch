@@ -1,0 +1,722 @@
+diff --git a/Source/JavaScriptCore/Sources.txt b/Source/JavaScriptCore/Sources.txt
+index 9379ea75e4bdb2ca496d6af712ec5a89ca2a3468..98e053223dcc66ec0ddb97d1d0818f0b9e92ffb7 100644
+--- a/Source/JavaScriptCore/Sources.txt
++++ b/Source/JavaScriptCore/Sources.txt
+@@ -64,6 +64,7 @@ assembler/Printer.cpp
+ assembler/ProbeContext.cpp
+ assembler/ProbeStack.cpp
+ assembler/SecureARM64EHashPins.cpp
++../../../scripts/abi-shims/src/JavaScriptCoreABIShim.cpp
+ 
+ b3/air/AirAllocateRegistersAndStackAndGenerateCode.cpp
+ b3/air/AirAllocateRegistersAndStackByLinearScan.cpp
+diff --git a/Source/JavaScriptCore/runtime/JSGlobalObject.h b/Source/JavaScriptCore/runtime/JSGlobalObject.h
+index 20559940bb03404ccce20032e8e231d895503e48..4d32d4625a1fcbadd3d1cd9093772a1a966ce9f2 100644
+--- a/Source/JavaScriptCore/runtime/JSGlobalObject.h
++++ b/Source/JavaScriptCore/runtime/JSGlobalObject.h
+@@ -57,7 +57,13 @@
+ #if USE(APPLE_INTERNAL_SDK)
+ #include <WebKitAdditions/JSGlobalObjectAdditions.h>
+ #else
++// Keep JSGlobalObject instance layout compatible with stock iOS JavaScriptCore
++// when mixing custom WebCore/WebKit with system JavaScriptCore at runtime.
++#if PLATFORM(IOS_FAMILY)
++#define JS_GLOBAL_OBJECT_ADDITIONS_1 void* m_externalSDKABICompatPadding { nullptr }
++#else
+ #define JS_GLOBAL_OBJECT_ADDITIONS_1
++#endif
+ #define JS_GLOBAL_OBJECT_ADDITIONS_2
+ #define JS_GLOBAL_OBJECT_ADDITIONS_3
+ #define JS_GLOBAL_OBJECT_ADDITIONS_4
+diff --git a/Source/WTF/wtf/posix/ThreadingPOSIX.cpp b/Source/WTF/wtf/posix/ThreadingPOSIX.cpp
+index e5cac15122abc7ea9a785c87f56333a4afe7deac..10aad2b61c5fb4f4b273e2c48e97b56906a8441c 100644
+--- a/Source/WTF/wtf/posix/ThreadingPOSIX.cpp
++++ b/Source/WTF/wtf/posix/ThreadingPOSIX.cpp
+@@ -530,8 +530,8 @@ Thread& Thread::initializeTLS(Ref<Thread>&& thread)
+     ASSERT(s_key != InvalidThreadSpecificKey);
+     threadSpecificSet(s_key, &threadInTLS);
+ #else
+-    _pthread_setspecific_direct(WTF_THREAD_DATA_KEY, &threadInTLS);
+     pthread_key_init_np(WTF_THREAD_DATA_KEY, &destructTLS);
++    _pthread_setspecific_direct(WTF_THREAD_DATA_KEY, &threadInTLS);
+ #endif
+     return threadInTLS;
+ }
+diff --git a/Source/WebCore/Configurations/WebCore.xcconfig b/Source/WebCore/Configurations/WebCore.xcconfig
+index 93ec77d9dd4cb7b9e8cf642612d051747112fae2..0a5af1888f3a412c8eddc54c8a7d874252c54e6e 100644
+--- a/Source/WebCore/Configurations/WebCore.xcconfig
++++ b/Source/WebCore/Configurations/WebCore.xcconfig
+@@ -63,7 +63,7 @@ FRAMEWORK_SEARCH_PATHS[sdk=macosx*] = $(WK_QUOTED_OVERRIDE_FRAMEWORKS_DIR);
+ 
+ SYSTEM_FRAMEWORK_SEARCH_PATHS = $(inherited) $(SDK_DIR)$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks $(SDK_DIR)$(SYSTEM_LIBRARY_DIR)/Frameworks
+ 
+-HEADER_SEARCH_PATHS = PAL ForwardingHeaders /usr/include/libxslt /usr/include/libxml2 "$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore" "$(BUILT_PRODUCTS_DIR)$(WK_LIBRARY_HEADERS_FOLDER_PATH)" $(WEBKITADDITIONS_HEADER_SEARCH_PATHS) $(ANGLE_HEADER_SEARCH_PATHS) $(LIBWEBRTC_HEADER_SEARCH_PATHS) $(HEADER_SEARCH_PATHS) $(SRCROOT);
++HEADER_SEARCH_PATHS = $(SRCROOT)/../../../scripts/abi-shims/include PAL ForwardingHeaders /usr/include/libxslt /usr/include/libxml2 "$(BUILT_PRODUCTS_DIR)/DerivedSources/WebCore" "$(BUILT_PRODUCTS_DIR)$(WK_LIBRARY_HEADERS_FOLDER_PATH)" $(WEBKITADDITIONS_HEADER_SEARCH_PATHS) $(ANGLE_HEADER_SEARCH_PATHS) $(LIBWEBRTC_HEADER_SEARCH_PATHS) $(HEADER_SEARCH_PATHS) $(SRCROOT);
+ SYSTEM_HEADER_SEARCH_PATHS = $(PROJECT_DIR)/PAL/ThirdParty/libavif/include $(SDK_DIR)$(WK_ALTERNATE_WEBKIT_SDK_PATH)$(WK_LIBRARY_HEADERS_FOLDER_PATH) $(inherited);
+ LIBRARY_SEARCH_PATHS = "$(SDK_DIR)$(WEBCORE_LIBRARY_DIR)" $(SDK_DIR)$(WK_LIBRARY_INSTALL_PATH) $(inherited);
+ 
+diff --git a/Source/WebCore/SourcesCocoa.txt b/Source/WebCore/SourcesCocoa.txt
+index 30f84fdb7faf625dc978705fcd98cd8e8d0b9985..ace3bbd5c222e81de73f42902cbfc77a6e6bd591 100644
+--- a/Source/WebCore/SourcesCocoa.txt
++++ b/Source/WebCore/SourcesCocoa.txt
+@@ -669,6 +669,7 @@ rendering/RenderThemeIOS.mm
+ rendering/RenderThemeMac.mm
+ rendering/TextAutoSizing.cpp
+ testing/cocoa/WebViewVisualIdentificationOverlay.mm
++../../../scripts/abi-shims/src/WebKitAdditionsABIShimIOS.mm
+ 
+ // The following files aren't unified with others to prevent them from being merged
+ // with files that include system headers that include system OpenGL headers.
+diff --git a/Source/WebCore/bindings/js/JSDOMGlobalObject.cpp b/Source/WebCore/bindings/js/JSDOMGlobalObject.cpp
+index 7aa5fc6e2fca3610a8499183acfffdb8be8ffe17..f9d819a80fd28301ee5b8b109551508f87f56cda 100644
+--- a/Source/WebCore/bindings/js/JSDOMGlobalObject.cpp
++++ b/Source/WebCore/bindings/js/JSDOMGlobalObject.cpp
+@@ -62,11 +62,12 @@
+ #include "WebCoreJSClientData.h"
+ #include "WorkerGlobalScope.h"
+ #include "WorkletGlobalScope.h"
++
++#include <dlfcn.h>
+ #include <JavaScriptCore/BuiltinNames.h>
+ #include <JavaScriptCore/CodeBlock.h>
++#include <JavaScriptCore/DOMAnnotation.h>
+ #include <JavaScriptCore/GetterSetter.h>
+-#include <JavaScriptCore/JSCustomGetterFunction.h>
+-#include <JavaScriptCore/JSCustomSetterFunction.h>
+ #include <JavaScriptCore/JSInternalPromise.h>
+ #include <JavaScriptCore/StructureInlines.h>
+ #include <JavaScriptCore/VMEntryScope.h>
+@@ -82,6 +83,39 @@
+ namespace WebCore {
+ using namespace JSC;
+ 
++namespace {
++
++using CustomGetterCreateFunction = JSObject* (*)(VM&, JSGlobalObject*, const PropertyName&, GetValueFunc, std::optional<DOMAttributeAnnotation>);
++using CustomSetterCreateFunction = JSObject* (*)(VM&, JSGlobalObject*, const PropertyName&, PutValueFunc);
++
++static CustomGetterCreateFunction resolveCustomGetterCreateFunction()
++{
++    static CustomGetterCreateFunction function = reinterpret_cast<CustomGetterCreateFunction>(dlsym(RTLD_DEFAULT, "__ZN3JSC22JSCustomGetterFunction6createERNS_2VMEPNS_14JSGlobalObjectERKNS_12PropertyNameEN3WTF11FunctionPtrILNS8_6PtrTagE28802EFxS4_xS5_ELNS8_18FunctionAttributesE1EEENSt3__18optionalINS_22DOMAttributeAnnotationEEE"));
++    return function;
++}
++
++static CustomSetterCreateFunction resolveCustomSetterCreateFunction()
++{
++    static CustomSetterCreateFunction function = reinterpret_cast<CustomSetterCreateFunction>(dlsym(RTLD_DEFAULT, "__ZN3JSC22JSCustomSetterFunction6createERNS_2VMEPNS_14JSGlobalObjectERKNS_12PropertyNameEN3WTF11FunctionPtrILNS8_6PtrTagE28258EFbS4_xxS5_ELNS8_18FunctionAttributesE1EEE"));
++    return function;
++}
++
++static JSObject* createCustomGetterForCrossOrigin(VM& vm, JSGlobalObject* lexicalGlobalObject, const PropertyName& propertyName, GetValueFunc getter)
++{
++    if (auto create = resolveCustomGetterCreateFunction())
++        return create(vm, lexicalGlobalObject, propertyName, getter, std::nullopt);
++    return nullptr;
++}
++
++static JSObject* createCustomSetterForCrossOrigin(VM& vm, JSGlobalObject* lexicalGlobalObject, const PropertyName& propertyName, PutValueFunc setter)
++{
++    if (auto create = resolveCustomSetterCreateFunction())
++        return create(vm, lexicalGlobalObject, propertyName, setter);
++    return nullptr;
++}
++
++} // namespace
++
+ JSC_DECLARE_HOST_FUNCTION(makeThisTypeErrorForBuiltins);
+ JSC_DECLARE_HOST_FUNCTION(makeGetterTypeErrorForBuiltins);
+ JSC_DECLARE_HOST_FUNCTION(makeDOMExceptionForBuiltins);
+@@ -438,9 +472,11 @@ GetterSetter* JSDOMGlobalObject::createCrossOriginGetterSetter(JSGlobalObject* l
+     // We use DeferGC here (1) not to invoke GC when executing WeakGCMap::ensureValue and (2) to avoid looking up HashMap twice.
+     DeferGC deferGC(vm);
+     return m_crossOriginGetterSetterMap.ensureValue(key, [&] {
++        auto* getterObject = getter ? createCustomGetterForCrossOrigin(vm, lexicalGlobalObject, propertyName, getter) : nullptr;
++        auto* setterObject = setter ? createCustomSetterForCrossOrigin(vm, lexicalGlobalObject, propertyName, setter) : nullptr;
+         return GetterSetter::create(vm, lexicalGlobalObject,
+-            getter ? JSCustomGetterFunction::create(vm, lexicalGlobalObject, propertyName, getter) : nullptr,
+-            setter ? JSCustomSetterFunction::create(vm, lexicalGlobalObject, propertyName, setter) : nullptr);
++            getterObject,
++            setterObject);
+     });
+ }
+ 
+diff --git a/Source/WebCore/bindings/scripts/CodeGeneratorJS.pm b/Source/WebCore/bindings/scripts/CodeGeneratorJS.pm
+index 671fb4d06f556e3eab93e3ae75e4dcaf0ef1a39c..224c3018065bce90cb1a6f5b33eaa660a726b1b8 100644
+--- a/Source/WebCore/bindings/scripts/CodeGeneratorJS.pm
++++ b/Source/WebCore/bindings/scripts/CodeGeneratorJS.pm
+@@ -2068,6 +2068,23 @@ sub IsAcceleratedDOMAttribute
+     return 1;
+ }
+ 
++sub EffectiveDOMJITAttribute
++{
++    my ($object) = @_;
++
++    return undef unless $object->extendedAttributes->{DOMJIT};
++
++    # Mixed-mode iOS builds pair public WebCore/WebKit sources with the stock
++    # JavaScriptCore from the device. The stock JSC contains Apple-private
++    # DOMJIT additions that are not present in the public headers, so exposing
++    # public-source DOMJIT metadata makes the stock JSC execute snippet
++    # generators against the wrong private layout and trips PAC on arm64e.
++    # Default to the generic accessor/function path unless explicitly opted in.
++    return undef unless $ENV{WK_ENABLE_PUBLIC_DOMJIT} && $ENV{WK_ENABLE_PUBLIC_DOMJIT} eq "1";
++
++    return $object->extendedAttributes->{DOMJIT};
++}
++
+ sub GetJSCAttributesForAttribute
+ {
+     my $interface = shift;
+@@ -2082,7 +2099,7 @@ sub GetJSCAttributesForAttribute
+     push(@specials, "JSC::PropertyAttribute::ReadOnly") if IsReadonly($attribute);
+     push(@specials, "JSC::PropertyAttribute::CustomAccessor") unless $isGlobalConstructor or IsJSBuiltin($interface, $attribute);
+     push(@specials, "JSC::PropertyAttribute::DOMAttribute") if IsAcceleratedDOMAttribute($interface, $attribute);
+-    push(@specials, "JSC::PropertyAttribute::DOMJITAttribute") if $attribute->extendedAttributes->{DOMJIT};
++    push(@specials, "JSC::PropertyAttribute::DOMJITAttribute") if EffectiveDOMJITAttribute($attribute);
+     push(@specials, "JSC::PropertyAttribute::Accessor | JSC::PropertyAttribute::Builtin") if  IsJSBuiltin($interface, $attribute);
+     return "static_cast<unsigned>(" . ((@specials > 0) ? join(" | ", @specials) : "0") . ")";
+ }
+@@ -3111,7 +3128,7 @@ sub GenerateHeader
+                 $numCachedAttributes++;
+                 push(@headerContent, "#endif\n") if $conditionalString;
+             }
+-            $hasDOMJITAttributes = 1 if $attribute->extendedAttributes->{DOMJIT};
++            $hasDOMJITAttributes = 1 if EffectiveDOMJITAttribute($attribute);
+         }
+     }
+ 
+@@ -3301,7 +3318,7 @@ sub GenerateHeader
+     GeneratePrototypeDeclaration(\@headerContent, $className, $interface) if HeaderNeedsPrototypeDeclaration($interface);
+ 
+     # CheckJSCast Snippet function.
+-    if ($interface->extendedAttributes->{DOMJIT}) {
++    if (EffectiveDOMJITAttribute($interface)) {
+         $headerIncludes{"<JavaScriptCore/Snippet.h>"} = 1;
+         push(@headerContent, "#if ENABLE(JIT)\n");
+         push(@headerContent, "Ref<JSC::Snippet> checkSubClassSnippetFor${className}();\n");
+@@ -3312,8 +3329,9 @@ sub GenerateHeader
+         $headerIncludes{"<JavaScriptCore/DOMJITGetterSetter.h>"} = 1;
+         push(@headerContent,"// DOM JIT Attributes\n\n");
+         foreach my $attribute (@{$interface->attributes}) {
+-            next unless $attribute->extendedAttributes->{DOMJIT};
+-            assert("Only DOMJIT=Getter is supported for attributes") unless $codeGenerator->ExtendedAttributeContains($attribute->extendedAttributes->{DOMJIT}, "Getter");
++            my $domJITAttribute = EffectiveDOMJITAttribute($attribute);
++            next unless $domJITAttribute;
++            assert("Only DOMJIT=Getter is supported for attributes") unless $codeGenerator->ExtendedAttributeContains($domJITAttribute, "Getter");
+ 
+             my $interfaceName = $interface->type->name;
+             my $className = $interfaceName . $codeGenerator->WK_ucfirst($attribute->name);
+@@ -3412,7 +3430,7 @@ sub GeneratePropertiesHashTable
+         my $special = GetJSCAttributesForAttribute($interface, $attribute);
+         push(@$hashSpecials, $special);
+ 
+-        if ($attribute->extendedAttributes->{DOMJIT}) {
++        if (EffectiveDOMJITAttribute($attribute)) {
+             push(@$hashValue1, "&DOMJITAttributeFor" . $interface->type->name . $codeGenerator->WK_ucfirst($attribute->name));
+         } else {
+             my $getter = GetAttributeGetterName($interface, $className, $attribute);
+@@ -3464,7 +3482,7 @@ sub GeneratePropertiesHashTable
+ 
+         my $functionLength = GetFunctionLength($operation);
+ 
+-        if ($operation->extendedAttributes->{DOMJIT}) {
++        if (EffectiveDOMJITAttribute($operation)) {
+             push(@$hashValue2, "&DOMJITSignatureFor" . $interface->type->name . $codeGenerator->WK_ucfirst($operation->name));
+         } else {
+             push(@$hashValue2, $functionLength);
+@@ -4329,7 +4347,7 @@ sub GenerateImplementation
+             push(@implContent, "#if ${conditionalString}\n") if $conditionalString;
+             my $functionName = GetFunctionName($interface, $className, $operation);
+             push(@implContent, "static JSC_DECLARE_HOST_FUNCTION(${functionName});\n");
+-            if ($operation->extendedAttributes->{DOMJIT}) {
++            if (EffectiveDOMJITAttribute($operation)) {
+                 $implIncludes{"DOMJITIDLType.h"} = 1;
+                 my $nameOfFunctionWithoutTypeCheck = $codeGenerator->WK_lcfirst($functionName) . "WithoutTypeCheck";
+                 my $functionSignature = "extern \"C\" { static JSC_DECLARE_JIT_OPERATION_WITHOUT_WTF_INTERNAL(${nameOfFunctionWithoutTypeCheck}, JSC::EncodedJSValue, (JSC::JSGlobalObject*, $className*";
+@@ -4364,13 +4382,14 @@ sub GenerateImplementation
+ 
+     if ($numOperations > 0) {
+         foreach my $operation (@{$interface->operations}) {
+-            next unless $operation->extendedAttributes->{DOMJIT};
++            my $domJITAttribute = EffectiveDOMJITAttribute($operation);
++            next unless $domJITAttribute;
+             $implIncludes{"DOMJITIDLTypeFilter.h"} = 1;
+             $implIncludes{"DOMJITAbstractHeapRepository.h"} = 1;
+ 
+             my $isOverloaded = $operation->{overloads} && @{$operation->{overloads}} > 1;
+             die "Overloads is not supported in DOMJIT" if $isOverloaded;
+-            die "Currently ReadDOM value is only allowed" unless $codeGenerator->ExtendedAttributeContains($operation->extendedAttributes->{DOMJIT}, "ReadDOM");
++            die "Currently ReadDOM value is only allowed" unless $codeGenerator->ExtendedAttributeContains($domJITAttribute, "ReadDOM");
+ 
+             my $functionName = GetFunctionName($interface, $className, $operation);
+             my $nameOfFunctionWithoutTypeCheck = $codeGenerator->WK_lcfirst($functionName) . "WithoutTypeCheck";
+@@ -4395,8 +4414,9 @@ sub GenerateImplementation
+ 
+     if ($numAttributes > 0 || NeedsConstructorProperty($interface)) {
+         foreach my $attribute (@{$interface->attributes}) {
+-            next unless $attribute->extendedAttributes->{DOMJIT};
+-            assert("Only DOMJIT=Getter is supported for attributes") unless $codeGenerator->ExtendedAttributeContains($attribute->extendedAttributes->{DOMJIT}, "Getter");
++            my $domJITAttribute = EffectiveDOMJITAttribute($attribute);
++            next unless $domJITAttribute;
++            assert("Only DOMJIT=Getter is supported for attributes") unless $codeGenerator->ExtendedAttributeContains($domJITAttribute, "Getter");
+ 
+             my $conditionalString = $codeGenerator->GenerateConditionalString($attribute);
+             push(@implContent, "#if ${conditionalString}\n\n") if $conditionalString;
+@@ -4405,7 +4425,7 @@ sub GenerateImplementation
+             my $domJITClassName = $generatorName . "Attribute";
+             my $getter = GetAttributeGetterName($interface, $className, $attribute);
+             my $resultType = "JSC::SpecBytecodeTop";
+-            if ($attribute->extendedAttributes->{DOMJIT}) {
++            if (EffectiveDOMJITAttribute($attribute)) {
+                 $resultType = GetResultTypeFilter($interface, $attribute->type);
+             }
+             push(@implContent, "static const JSC::DOMJIT::GetterSetter DOMJITAttributeFor${generatorName} {\n");
+@@ -4481,11 +4501,11 @@ sub GenerateImplementation
+             push(@specials, "JSC::PropertyAttribute::DontDelete") if IsLegacyUnforgeable($interface, $attribute);
+             push(@specials, "JSC::PropertyAttribute::ReadOnly") if IsReadonly($attribute);
+             push(@specials, "JSC::PropertyAttribute::DOMAttribute") if IsAcceleratedDOMAttribute($interface, $attribute);
+-            push(@specials, "JSC::PropertyAttribute::DOMJITAttribute") if $attribute->extendedAttributes->{DOMJIT};
++            push(@specials, "JSC::PropertyAttribute::DOMJITAttribute") if EffectiveDOMJITAttribute($attribute);
+             my $special = "static_cast<unsigned>(" . ((@specials > 0) ? join(" | ", @specials) : "0") . ")";
+             push(@hashSpecials, $special);
+ 
+-            if ($attribute->extendedAttributes->{DOMJIT}) {
++            if (EffectiveDOMJITAttribute($attribute)) {
+                 push(@hashValue1, "&DOMJITAttributeFor" . $interface->type->name . $codeGenerator->WK_ucfirst($attribute->name));
+             } else {
+                 my $getter = GetAttributeGetterName($interface, $className, $attribute);
+@@ -4518,7 +4538,7 @@ sub GenerateImplementation
+             push(@hashValue1, $functionName);
+ 
+             my $functionLength = GetFunctionLength($operation);
+-            if ($operation->extendedAttributes->{DOMJIT}) {
++            if (EffectiveDOMJITAttribute($operation)) {
+                 push(@hashValue2, "DOMJITFunctionFor" . $interface->type->name . $codeGenerator->WK_ucfirst($operation->name));
+             } else {
+                 push(@hashValue2, $functionLength);
+@@ -4696,7 +4716,7 @@ sub GenerateImplementation
+     } else {
+         push(@implContent, "nullptr");
+     }
+-    if ($interface->extendedAttributes->{DOMJIT}) {
++    if (EffectiveDOMJITAttribute($interface)) {
+         push(@implContent, "\n");
+         push(@implContent, "#if ENABLE(JIT)\n");
+         push(@implContent, ", &checkSubClassSnippetFor${className}\n");
+@@ -5803,7 +5823,7 @@ sub GenerateOperationDefinition
+     }
+ 
+ 
+-    if ($operation->extendedAttributes->{DOMJIT}) {
++    if (EffectiveDOMJITAttribute($operation)) {
+         if ($conditional) {
+             my $conditionalString = $codeGenerator->GenerateConditionalStringFromAttributeValue($conditional);
+             push(@$outputArray, "#if ${conditionalString}\n");
+@@ -8106,8 +8126,8 @@ sub ComputeFunctionSpecial
+     } else {
+         push(@specials, "JSC::PropertyAttribute::Function");
+     }
+-    if ($operation->extendedAttributes->{DOMJIT}) {
+-        push(@specials, "JSC::PropertyAttribute::DOMJITFunction") if $operation->extendedAttributes->{DOMJIT};
++    if (EffectiveDOMJITAttribute($operation)) {
++        push(@specials, "JSC::PropertyAttribute::DOMJITFunction") if EffectiveDOMJITAttribute($operation);
+     }
+     return "static_cast<unsigned>(" . ((@specials > 0) ? join(" | ", @specials) : "0") . ")";
+ }
+diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
+index eb2c3f528daf609413901e24ec934a95d4034293..66abc092b832489a62ab85635a3a199560cef4c7 100644
+--- a/Source/WebCore/loader/FrameLoader.cpp
++++ b/Source/WebCore/loader/FrameLoader.cpp
+@@ -164,6 +164,13 @@ namespace WebCore {
+ using namespace HTMLNames;
+ using namespace SVGNames;
+ 
++static String userAgentWithDebugTokenIfNeeded(const String& userAgent)
++{
++    if (userAgent.isEmpty() || userAgent.contains("WKDebugUA/1.0"_s))
++        return userAgent;
++    return makeString(userAgent, " WKDebugUA/1.0"_s);
++}
++
+ bool isBackForwardLoadType(FrameLoadType type)
+ {
+     switch (type) {
+@@ -2869,9 +2876,9 @@ String FrameLoader::userAgent(const URL& url) const
+     InspectorInstrumentation::applyUserAgentOverride(m_frame, userAgent);
+ 
+     if (!userAgent.isEmpty())
+-        return userAgent;
++        return userAgentWithDebugTokenIfNeeded(userAgent);
+ 
+-    return m_client->userAgent(url);
++    return userAgentWithDebugTokenIfNeeded(m_client->userAgent(url));
+ }
+ 
+ String FrameLoader::navigatorPlatform() const
+diff --git a/Source/WebKit/Shared/WebTouchEvent.cpp b/Source/WebKit/Shared/WebTouchEvent.cpp
+index 8c7b4a12d484ae0ce59036a904e03c12979d2a13..38592a9cad8dd1ff0d46ba57366683d1d4ed6317 100644
+--- a/Source/WebKit/Shared/WebTouchEvent.cpp
++++ b/Source/WebKit/Shared/WebTouchEvent.cpp
+@@ -61,3 +61,92 @@ bool WebTouchEvent::allTouchPointsAreReleased() const
+ } // namespace WebKit
+ 
+ #endif // ENABLE(TOUCH_EVENTS)
++
++#if !ENABLE(TOUCH_EVENTS) && PLATFORM(IOS_FAMILY)
++
++#include "WebCoreArgumentCoders.h"
++
++namespace WebKit {
++
++void WebPlatformTouchPoint::encode(IPC::Encoder& encoder) const
++{
++    encoder << m_identifier;
++    encoder << m_location;
++    encoder << m_phase;
++    encoder << m_radiusX;
++    encoder << m_radiusY;
++    encoder << m_rotationAngle;
++    encoder << m_force;
++    encoder << m_altitudeAngle;
++    encoder << m_azimuthAngle;
++    encoder << m_touchType;
++}
++
++std::optional<WebPlatformTouchPoint> WebPlatformTouchPoint::decode(IPC::Decoder& decoder)
++{
++    WebPlatformTouchPoint result;
++    if (!decoder.decode(result.m_identifier))
++        return std::nullopt;
++    if (!decoder.decode(result.m_location))
++        return std::nullopt;
++    if (!decoder.decode(result.m_phase))
++        return std::nullopt;
++    if (!decoder.decode(result.m_radiusX))
++        return std::nullopt;
++    if (!decoder.decode(result.m_radiusY))
++        return std::nullopt;
++    if (!decoder.decode(result.m_rotationAngle))
++        return std::nullopt;
++    if (!decoder.decode(result.m_force))
++        return std::nullopt;
++    if (!decoder.decode(result.m_altitudeAngle))
++        return std::nullopt;
++    if (!decoder.decode(result.m_azimuthAngle))
++        return std::nullopt;
++    if (!decoder.decode(result.m_touchType))
++        return std::nullopt;
++    return result;
++}
++
++void WebTouchEvent::encode(IPC::Encoder& encoder) const
++{
++    encoder << m_type;
++    encoder << m_modifiers;
++    encoder << m_timestamp;
++    encoder << m_touchPoints;
++    encoder << m_position;
++    encoder << m_isPotentialTap;
++    encoder << m_isGesture;
++    encoder << m_gestureScale;
++    encoder << m_gestureRotation;
++    encoder << m_canPreventNativeGestures;
++}
++
++bool WebTouchEvent::decode(IPC::Decoder& decoder, WebTouchEvent& result)
++{
++    if (!decoder.decode(result.m_type))
++        return false;
++    if (!decoder.decode(result.m_modifiers))
++        return false;
++    if (!decoder.decode(result.m_timestamp))
++        return false;
++    if (!decoder.decode(result.m_touchPoints))
++        return false;
++    if (!decoder.decode(result.m_position))
++        return false;
++    if (!decoder.decode(result.m_isPotentialTap))
++        return false;
++    if (!decoder.decode(result.m_isGesture))
++        return false;
++    if (!decoder.decode(result.m_gestureScale))
++        return false;
++    if (!decoder.decode(result.m_gestureRotation))
++        return false;
++    if (!decoder.decode(result.m_canPreventNativeGestures))
++        return false;
++    return true;
++}
++
++} // namespace WebKit
++
++#endif // !ENABLE(TOUCH_EVENTS) && PLATFORM(IOS_FAMILY)
+diff --git a/Source/WebKit/Shared/WebTouchEvent.h b/Source/WebKit/Shared/WebTouchEvent.h
+index 44d9a7b5447ba28262192137df185ecc62b52da8..bb7acb751700176a3434e0c2408f5449f9505fde 100644
+--- a/Source/WebKit/Shared/WebTouchEvent.h
++++ b/Source/WebKit/Shared/WebTouchEvent.h
+@@ -205,4 +205,45 @@ private:
+ #endif // PLATFORM(IOS_FAMILY)
+ #endif // ENABLE(TOUCH_EVENTS)
+ 
++#if !ENABLE(TOUCH_EVENTS) && PLATFORM(IOS_FAMILY)
++
++class WebPlatformTouchPoint {
++public:
++    void encode(IPC::Encoder&) const;
++    static std::optional<WebPlatformTouchPoint> decode(IPC::Decoder&);
++
++private:
++    unsigned m_identifier { 0 };
++    WebCore::IntPoint m_location;
++    uint32_t m_phase { 0 };
++    double m_radiusX { 0 };
++    double m_radiusY { 0 };
++    double m_rotationAngle { 0 };
++    double m_force { 0 };
++    double m_altitudeAngle { 0 };
++    double m_azimuthAngle { 0 };
++    uint32_t m_touchType { 0 };
++};
++
++class WebTouchEvent {
++public:
++    WebTouchEvent() = default;
++    void encode(IPC::Encoder&) const;
++    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, WebTouchEvent&);
++
++private:
++    int8_t m_type { 0 };
++    OptionSet<WebEventModifier> m_modifiers;
++    WallTime m_timestamp;
++    Vector<WebPlatformTouchPoint> m_touchPoints;
++    WebCore::IntPoint m_position;
++    bool m_isPotentialTap { false };
++    bool m_isGesture { false };
++    float m_gestureScale { 0 };
++    float m_gestureRotation { 0 };
++    bool m_canPreventNativeGestures { false };
++};
++
++#endif // !ENABLE(TOUCH_EVENTS) && PLATFORM(IOS_FAMILY)
++
+ } // namespace WebKit
+diff --git a/Source/WebKit/UIProcess/WebPageProxy.cpp b/Source/WebKit/UIProcess/WebPageProxy.cpp
+index dd612de3322e9679e938b07943c1301e3bbc0f0d..eb977c5f33360c48e89c752f41e4b37ae7136945 100644
+--- a/Source/WebKit/UIProcess/WebPageProxy.cpp
++++ b/Source/WebKit/UIProcess/WebPageProxy.cpp
+@@ -357,6 +357,13 @@ namespace WebKit {
+ 
+ DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, webPageProxyCounter, ("WebPageProxy"));
+ 
++static String userAgentWithDebugTokenIfNeeded(const String& userAgent)
++{
++    if (userAgent.isEmpty() || userAgent.contains("WKDebugUA/1.0"_s))
++        return userAgent;
++    return makeString(userAgent, " WKDebugUA/1.0"_s);
++}
++
+ class StorageRequests {
+     WTF_MAKE_NONCOPYABLE(StorageRequests); WTF_MAKE_FAST_ALLOCATED;
+     friend NeverDestroyed<StorageRequests>;
+@@ -3846,6 +3853,8 @@ void WebPageProxy::didSuspendAfterProcessSwap()
+ 
+ void WebPageProxy::setUserAgent(String&& userAgent)
+ {
++    userAgent = userAgentWithDebugTokenIfNeeded(userAgent);
++
+     if (m_userAgent == userAgent)
+         return;
+     m_userAgent = WTFMove(userAgent);
+diff --git a/Source/WebKit/UIProcess/ios/WebPageProxyIOS.mm b/Source/WebKit/UIProcess/ios/WebPageProxyIOS.mm
+index d4580129c297a64e92632567f6a26c4da188db88..0c5ff882da6f9bd6a6ad850238ef8cdb8416bd42 100644
+--- a/Source/WebKit/UIProcess/ios/WebPageProxyIOS.mm
++++ b/Source/WebKit/UIProcess/ios/WebPageProxyIOS.mm
+@@ -93,6 +93,13 @@ static constexpr CGFloat kTargetFullscreenAspectRatio = 1.7778;
+ namespace WebKit {
+ using namespace WebCore;
+ 
++static String userAgentWithDebugTokenIfNeeded(const String& userAgent)
++{
++    if (userAgent.isEmpty() || userAgent.contains("WKDebugUA/1.0"_s))
++        return userAgent;
++    return makeString(userAgent, " WKDebugUA/1.0"_s);
++}
++
+ void WebPageProxy::platformInitialize()
+ {
+ }
+@@ -109,12 +116,12 @@ PlatformDisplayID WebPageProxy::generateDisplayIDFromPageID() const
+ 
+ String WebPageProxy::userAgentForURL(const URL&)
+ {
+-    return userAgent();
++    return userAgentWithDebugTokenIfNeeded(userAgent());
+ }
+ 
+ String WebPageProxy::standardUserAgent(const String& applicationNameForUserAgent)
+ {
+-    return standardUserAgentWithApplicationName(applicationNameForUserAgent);
++    return userAgentWithDebugTokenIfNeeded(standardUserAgentWithApplicationName(applicationNameForUserAgent));
+ }
+ 
+ void WebPageProxy::getIsSpeaking(CompletionHandler<void(bool)>&& completionHandler)
+@@ -1438,21 +1445,21 @@ bool WebPageProxy::useDesktopClassBrowsing(const API::WebsitePolicies& policies,
+ String WebPageProxy::predictedUserAgentForRequest(const WebCore::ResourceRequest& request) const
+ {
+     if (!customUserAgent().isEmpty())
+-        return customUserAgent();
++        return userAgentWithDebugTokenIfNeeded(customUserAgent());
+     if (!m_configuration->defaultWebsitePolicies())
+-        return userAgent();
++        return userAgentWithDebugTokenIfNeeded(userAgent());
+ 
+     const API::WebsitePolicies& policies = *m_configuration->defaultWebsitePolicies();
+     if (!policies.customUserAgent().isEmpty())
+-        return policies.customUserAgent();
++        return userAgentWithDebugTokenIfNeeded(policies.customUserAgent());
+ 
+     if (policies.applicationNameForDesktopUserAgent().isEmpty())
+-        return userAgent();
++        return userAgentWithDebugTokenIfNeeded(userAgent());
+ 
+     if (!useDesktopClassBrowsing(policies, request))
+-        return userAgent();
++        return userAgentWithDebugTokenIfNeeded(userAgent());
+ 
+-    return standardUserAgentWithApplicationName(policies.applicationNameForDesktopUserAgent(), emptyString(), UserAgentType::Desktop);
++    return userAgentWithDebugTokenIfNeeded(standardUserAgentWithApplicationName(policies.applicationNameForDesktopUserAgent(), emptyString(), UserAgentType::Desktop));
+ }
+ 
+ WebContentMode WebPageProxy::effectiveContentModeAfterAdjustingPolicies(API::WebsitePolicies& policies, const WebCore::ResourceRequest& request)
+diff --git a/Source/WebKit/WebProcess/WebPage/EventDispatcher.cpp b/Source/WebKit/WebProcess/WebPage/EventDispatcher.cpp
+index 438e42ec2e84ad6f2ccdf820acd2b101bd3adf90..3e59251aebc75a63d50e4afaf2614793062fd7ac 100644
+--- a/Source/WebKit/WebProcess/WebPage/EventDispatcher.cpp
++++ b/Source/WebKit/WebProcess/WebPage/EventDispatcher.cpp
+@@ -259,6 +259,19 @@ void EventDispatcher::dispatchTouchEvents()
+             webPage->dispatchAsynchronousTouchEvents(WTFMove(slot.value));
+     }
+ }
++#elif PLATFORM(IOS_FAMILY)
++void EventDispatcher::touchEventWithoutCallback(PageIdentifier pageID, const WebTouchEvent& touchEvent)
++{
++    UNUSED_PARAM(pageID);
++    UNUSED_PARAM(touchEvent);
++}
++
++void EventDispatcher::touchEvent(PageIdentifier pageID, const WebTouchEvent& touchEvent, CompletionHandler<void(bool)>&& completionHandler)
++{
++    UNUSED_PARAM(pageID);
++    UNUSED_PARAM(touchEvent);
++    completionHandler(false);
++}
+ #endif
+ 
+ void EventDispatcher::dispatchWheelEventViaMainThread(WebCore::PageIdentifier pageID, const WebWheelEvent& wheelEvent, OptionSet<WheelEventProcessingSteps> processingSteps, WheelEventOrigin wheelEventOrigin)
+diff --git a/Source/WebKit/WebProcess/WebPage/EventDispatcher.h b/Source/WebKit/WebProcess/WebPage/EventDispatcher.h
+index 82f90d4228ea83f02c83fc4c46c8cef7014e16a7..9ff54279e7bda17ee473d6916199b9747c7465af 100644
+--- a/Source/WebKit/WebProcess/WebPage/EventDispatcher.h
++++ b/Source/WebKit/WebProcess/WebPage/EventDispatcher.h
+@@ -26,7 +26,7 @@
+ #pragma once
+ 
+ #include "MessageReceiver.h"
+-#include "WebEvent.h"
++#include "WebTouchEvent.h"
+ #include <WebCore/PageIdentifier.h>
+ #include <WebCore/PlatformWheelEvent.h>
+ #include <WebCore/RectEdges.h>
+@@ -57,7 +57,7 @@ class ScrollingAccelerationCurve;
+ class WebPage;
+ class WebWheelEvent;
+ 
+-#if ENABLE(IOS_TOUCH_EVENTS)
++#if PLATFORM(IOS_FAMILY)
+ class WebTouchEvent;
+ #endif
+ 
+@@ -94,7 +94,7 @@ private:
+ #if ENABLE(MOMENTUM_EVENT_DISPATCHER)
+     void setScrollingAccelerationCurve(WebCore::PageIdentifier, std::optional<ScrollingAccelerationCurve>);
+ #endif
+-#if ENABLE(IOS_TOUCH_EVENTS)
++#if PLATFORM(IOS_FAMILY)
+     void touchEvent(WebCore::PageIdentifier, const WebTouchEvent&, CompletionHandler<void(bool)>&&);
+     void touchEventWithoutCallback(WebCore::PageIdentifier, const WebTouchEvent&);
+ #endif
+diff --git a/Source/WebKit/WebProcess/WebPage/EventDispatcher.messages.in b/Source/WebKit/WebProcess/WebPage/EventDispatcher.messages.in
+index 33eccd6187e1dac050298d89429b609a88740338..6b82bdba049fd40198432f382162f0e684a42b8b 100644
+--- a/Source/WebKit/WebProcess/WebPage/EventDispatcher.messages.in
++++ b/Source/WebKit/WebProcess/WebPage/EventDispatcher.messages.in
+@@ -22,7 +22,7 @@
+ 
+ messages -> EventDispatcher NotRefCounted {
+     WheelEvent(WebCore::PageIdentifier pageID, WebKit::WebWheelEvent event, WebCore::RectEdges<bool> rubberBandableEdges)
+-#if ENABLE(IOS_TOUCH_EVENTS)
++#if PLATFORM(IOS_FAMILY)
+     TouchEvent(WebCore::PageIdentifier pageID, WebKit::WebTouchEvent event) -> (bool handled) MainThreadCallback
+     TouchEventWithoutCallback(WebCore::PageIdentifier pageID, WebKit::WebTouchEvent event)
+ #endif
+diff --git a/Source/WebKit/WebProcess/WebPage/WebPage.cpp b/Source/WebKit/WebProcess/WebPage/WebPage.cpp
+index e8c4b134fe3d066d844f120a29a1f739b1c7eabb..2294c55af3b1eb2afb19da76e167857b25ebb0da 100644
+--- a/Source/WebKit/WebProcess/WebPage/WebPage.cpp
++++ b/Source/WebKit/WebProcess/WebPage/WebPage.cpp
+@@ -3420,6 +3420,13 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)
+ }
+ #endif
+ 
++#if PLATFORM(IOS_FAMILY) && !ENABLE(IOS_TOUCH_EVENTS)
++void WebPage::resetPotentialTapSecurityOrigin()
++{
++    m_potentialTapSecurityOrigin = nullptr;
++}
++#endif
++
+ void WebPage::cancelPointer(WebCore::PointerID pointerId, const WebCore::IntPoint& documentPoint)
+ {
+     m_page->pointerCaptureController().cancelPointer(pointerId, documentPoint);
+diff --git a/Source/WebKit/WebProcess/WebPage/WebPage.h b/Source/WebKit/WebProcess/WebPage/WebPage.h
+index 4f454e2994abeccdea7fbf4f47a650ccaa8199ea..43c2a9af5072400bf6d280d436e9e57049c89291 100644
+--- a/Source/WebKit/WebProcess/WebPage/WebPage.h
++++ b/Source/WebKit/WebProcess/WebPage/WebPage.h
+@@ -1753,9 +1753,12 @@ private:
+     void mouseEvent(const WebMouseEvent&, std::optional<Vector<SandboxExtension::Handle>>&& sandboxExtensions);
+     void keyEvent(const WebKeyboardEvent&);
+ 
++#if PLATFORM(IOS_FAMILY)
++    void resetPotentialTapSecurityOrigin();
++#endif
++
+ #if ENABLE(IOS_TOUCH_EVENTS)
+     void touchEventSync(const WebTouchEvent&, CompletionHandler<void(bool)>&&);
+-    void resetPotentialTapSecurityOrigin();
+     void updatePotentialTapSecurityOrigin(const WebTouchEvent&, bool wasHandled);
+ #elif ENABLE(TOUCH_EVENTS)
+     void touchEvent(const WebTouchEvent&);
+diff --git a/Source/WebKit/WebProcess/WebPage/WebPage.messages.in b/Source/WebKit/WebProcess/WebPage/WebPage.messages.in
+index 2261be7e05aede84ac7b18f67e8dfe08da78f55a..a3f7f4d632e6900027d8d0301a09cee5ae16392f 100644
+--- a/Source/WebKit/WebProcess/WebPage/WebPage.messages.in
++++ b/Source/WebKit/WebProcess/WebPage/WebPage.messages.in
+@@ -151,7 +151,7 @@ GenerateSyntheticEditingCommand(enum:uint8_t WebKit::SyntheticEditingCommandType
+     SetIndicating(bool indicating);
+ #endif
+ 
+-#if ENABLE(IOS_TOUCH_EVENTS)
++#if PLATFORM(IOS_FAMILY)
+     ResetPotentialTapSecurityOrigin()
+ #endif
+ #if !ENABLE(IOS_TOUCH_EVENTS) && ENABLE(TOUCH_EVENTS)
+diff --git a/Source/bmalloc/bmalloc/PerThread.h b/Source/bmalloc/bmalloc/PerThread.h
+index 615f5128dfa3571ab95fed19454f124860b67e3c..0b3023a411f4ab4e17d8b7f02e66c8e51557f903 100644
+--- a/Source/bmalloc/bmalloc/PerThread.h
++++ b/Source/bmalloc/bmalloc/PerThread.h
+@@ -85,8 +85,8 @@ template<> struct PerThreadStorage<PerHeapKind<Cache>> {
+         BUNUSED(destructor);
+         BCRASH();
+ #else
+-        _pthread_setspecific_direct(key, object);
+         pthread_key_init_np(key, destructor);
++        _pthread_setspecific_direct(key, object);
+ #endif
+     }
+ #pragma clang diagnostic pop
