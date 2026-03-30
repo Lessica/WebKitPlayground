@@ -5,7 +5,7 @@ Build an open-source version of WebKit and replace it system-wide on iOS jailbro
 ## Requirements
 
 - WebKit source code: [releases/Apple/Safari-16.4-iOS-16.4.1](https://github.com/WebKit/WebKit/releases/tag/releases/Apple/Safari-16.4-iOS-16.4.1)
-- Xcode 14.3.1
+- Xcode 14.3.1 + iOS 16.5 SDK
 - Test device: iOS 16.4.1 (Dopamine)
 
 ## How to use
