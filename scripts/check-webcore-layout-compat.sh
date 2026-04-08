@@ -21,6 +21,53 @@ WARN_ONLY=0
 BUILD_DIR_SET=0
 PACKAGE_SET=0
 
+if [[ -t 1 ]]; then
+    C_RESET=$'\033[0m'
+    C_BOLD=$'\033[1m'
+    C_CYAN=$'\033[36m'
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_RED=$'\033[31m'
+else
+    C_RESET=""
+    C_BOLD=""
+    C_CYAN=""
+    C_GREEN=""
+    C_YELLOW=""
+    C_RED=""
+fi
+
+print_report() {
+    local report_file="$1"
+    if [[ ! -t 1 ]]; then
+        cat "${report_file}"
+        return
+    fi
+
+    while IFS= read -r line; do
+        case "${line}" in
+            "== "*)
+                printf "%s%s%s\n" "${C_BOLD}${C_CYAN}" "${line}" "${C_RESET}"
+                ;;
+            "Result: PASS"*)
+                printf "%s%s%s\n" "${C_BOLD}${C_GREEN}" "${line}" "${C_RESET}"
+                ;;
+            "Result: FAILED"*)
+                printf "%s%s%s\n" "${C_BOLD}${C_RED}" "${line}" "${C_RESET}"
+                ;;
+            "Reason: "*)
+                printf "%s%s%s\n" "${C_YELLOW}" "${line}" "${C_RESET}"
+                ;;
+            "[Built offsets via x20]"|"[Stock offsets via x20]")
+                printf "%s%s%s\n" "${C_CYAN}" "${line}" "${C_RESET}"
+                ;;
+            *)
+                print -- "${line}"
+                ;;
+        esac
+    done < "${report_file}"
+}
+
 usage() {
     cat <<EOF
 Usage: ${SCRIPT_NAME} [--build-dir <dir> | --package <tar.gz>]
@@ -244,7 +291,7 @@ else
     fi
 fi
 
-cat "${REPORT_TARGET}"
+print_report "${REPORT_TARGET}"
 
 if [[ "${fail}" -eq 1 ]]; then
     if [[ "${WARN_ONLY}" == "1" ]]; then

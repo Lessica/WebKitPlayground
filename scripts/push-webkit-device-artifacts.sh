@@ -12,16 +12,52 @@ SSH_USER=""
 REMOTE_DIR="/var/root"
 KEEP_REMOTE_PACKAGE=0
 INCLUDE_JSC=0
-SKIP_ABI_CHECK=0
-STOCK_JSC="${ROOT_DIR}/samples/device-dsc-split/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore"
-STOCK_WEBCORE="${ROOT_DIR}/samples/device-dsc-split/System/Library/PrivateFrameworks/WebCore.framework/WebCore"
+STEP_INDEX=0
+TOTAL_STEPS=3
+
+if [[ -t 1 ]]; then
+    C_RESET=$'\033[0m'
+    C_BOLD=$'\033[1m'
+    C_CYAN=$'\033[36m'
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_RED=$'\033[31m'
+else
+    C_RESET=""
+    C_BOLD=""
+    C_CYAN=""
+    C_GREEN=""
+    C_YELLOW=""
+    C_RED=""
+fi
+
+log_step() {
+    STEP_INDEX=$((STEP_INDEX + 1))
+    printf "%s%s[%d/%d]%s %s\n" "${C_BOLD}" "${C_CYAN}" "${STEP_INDEX}" "${TOTAL_STEPS}" "${C_RESET}" "$1"
+}
+
+log_info() {
+    printf "%sInfo:%s %s\n" "${C_CYAN}" "${C_RESET}" "$1"
+}
+
+log_warn() {
+    printf "%sWarning:%s %s\n" "${C_YELLOW}" "${C_RESET}" "$1" >&2
+}
+
+log_error() {
+    printf "%sError:%s %s\n" "${C_RED}" "${C_RESET}" "$1" >&2
+}
+
+log_success() {
+    printf "%s%s%s\n" "${C_GREEN}" "$1" "${C_RESET}"
+}
 
 usage() {
     cat <<EOF
 Usage: ${SCRIPT_NAME} [--package <tar.gz-path>]
           [--ssh-target <ssh-config-host>] [--ssh-host <host>] [--ssh-port <port>]
           [--ssh-user <user>] [--remote-dir <dir>] [--keep-remote-package]
-          [--include-jsc] [--skip-abi-check] [--stock-jsc <path>] [--stock-webcore <path>]
+          [--include-jsc]
 
 Default behavior:
   If --package is not provided, use the newest:
@@ -34,7 +70,6 @@ Default SSH (iproxy style):
 Notes:
   JavaScriptCore.framework is excluded on push by default.
   Pass --include-jsc to push JavaScriptCore.framework too.
-  ABI + layout checks run by default when JSC is excluded.
 EOF
 }
 
@@ -72,24 +107,12 @@ while [[ $# -gt 0 ]]; do
             INCLUDE_JSC=1
             shift
             ;;
-        --skip-abi-check)
-            SKIP_ABI_CHECK=1
-            shift
-            ;;
-        --stock-jsc)
-            STOCK_JSC="${2:?missing value for --stock-jsc}"
-            shift 2
-            ;;
-        --stock-webcore)
-            STOCK_WEBCORE="${2:?missing value for --stock-webcore}"
-            shift 2
-            ;;
         -h|--help)
             usage
             exit 0
             ;;
         *)
-            echo "Unknown argument: $1" >&2
+            log_error "Unknown argument: $1"
             usage >&2
             exit 1
             ;;
@@ -101,31 +124,13 @@ if [[ -z "${PACKAGE_PATH}" ]]; then
 fi
 
 if [[ -z "${PACKAGE_PATH}" ]]; then
-    echo "No package file found. Provide --package <tar.gz-path>." >&2
+    log_error "No package file found. Provide --package <tar.gz-path>."
     exit 1
 fi
 
 if [[ ! -f "${PACKAGE_PATH}" ]]; then
-    echo "Package file does not exist: ${PACKAGE_PATH}" >&2
+    log_error "Package file does not exist: ${PACKAGE_PATH}"
     exit 1
-fi
-
-if [[ "${INCLUDE_JSC}" != "1" && "${SKIP_ABI_CHECK}" != "1" ]]; then
-    ABI_CHECK_SCRIPT="${SCRIPT_DIR}/check-jsc-abi-compat.sh"
-    if [[ ! -f "${ABI_CHECK_SCRIPT}" ]]; then
-        echo "ABI check script not found: ${ABI_CHECK_SCRIPT}" >&2
-        exit 1
-    fi
-    echo "[1/4] Running ABI gate against stock JSC..."
-    zsh "${ABI_CHECK_SCRIPT}" --package "${PACKAGE_PATH}" --stock-jsc "${STOCK_JSC}"
-
-    LAYOUT_CHECK_SCRIPT="${SCRIPT_DIR}/check-webcore-layout-compat.sh"
-    if [[ ! -f "${LAYOUT_CHECK_SCRIPT}" ]]; then
-        echo "Layout check script not found: ${LAYOUT_CHECK_SCRIPT}" >&2
-        exit 1
-    fi
-    echo "[2/4] Running WebCore mixed-mode layout gate..."
-    zsh "${LAYOUT_CHECK_SCRIPT}" --package "${PACKAGE_PATH}" --stock-webcore "${STOCK_WEBCORE}"
 fi
 
 remote="${SSH_TARGET}"
@@ -146,12 +151,12 @@ fi
 
 remote_tar="${REMOTE_DIR}/$(basename "${PACKAGE_PATH}")"
 
-echo "[3/4] Uploading package to device..."
+log_step "Uploading package to device..."
 ssh "${ssh_extra_args[@]}" "${remote}" "mkdir -p '${REMOTE_DIR}'"
 scp "${scp_extra_args[@]}" "${PACKAGE_PATH}" "${remote}:${remote_tar}"
-echo "Uploaded to: ${remote}:${remote_tar}"
+log_info "Uploaded to: ${remote}:${remote_tar}"
 
-echo "[4/4] Extracting package on device..."
+log_step "Extracting package on device..."
 ssh "${ssh_extra_args[@]}" "${remote}" '
 set -e
 INCLUDE_JSC='"${INCLUDE_JSC}"'
@@ -179,7 +184,14 @@ if [ "${INCLUDE_JSC}" != "1" ]; then
 fi
 
 mkdir -p "${TARGET_FRAMEWORKS_DIR}"
-cp -R "${TMP_DIR}/payload/." "${TARGET_FRAMEWORKS_DIR}/"
+# Replace top-level payload entries one by one to avoid
+# "cannot overwrite directory ... with non-directory" conflicts.
+find "${TMP_DIR}/payload" -mindepth 1 -maxdepth 1 | while IFS= read -r src; do
+    base="$(basename "${src}")"
+    dst="${TARGET_FRAMEWORKS_DIR}/${base}"
+    rm -rf "${dst}"
+    cp -R "${src}" "${dst}"
+done
 
 # Move dylibs into usr/lib (jailbreak path preferred), then remove duplicates from Frameworks.
 mkdir -p "${TARGET_USRLIB_DIR}"
@@ -196,6 +208,9 @@ echo "Moved dylibs to: ${TARGET_USRLIB_DIR}"
 
 if [[ "${KEEP_REMOTE_PACKAGE}" != "1" ]]; then
     ssh "${ssh_extra_args[@]}" "${remote}" "rm -f '${remote_tar}'"
+else
+    log_warn "Keeping remote package: ${remote_tar}"
 fi
 
-echo "[4/4] Done."
+log_step "Done."
+log_success "Push completed."

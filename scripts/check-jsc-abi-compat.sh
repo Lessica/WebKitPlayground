@@ -25,6 +25,59 @@ typeset -a TARGET_BINARIES=(
     "WebKitLegacy.framework/WebKitLegacy"
 )
 
+if [[ -t 1 ]]; then
+    C_RESET=$'\033[0m'
+    C_BOLD=$'\033[1m'
+    C_CYAN=$'\033[36m'
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_RED=$'\033[31m'
+else
+    C_RESET=""
+    C_BOLD=""
+    C_CYAN=""
+    C_GREEN=""
+    C_YELLOW=""
+    C_RED=""
+fi
+
+print_report() {
+    local report_file="$1"
+    if [[ ! -t 1 ]]; then
+        cat "${report_file}"
+        return
+    fi
+
+    while IFS= read -r line; do
+        case "${line}" in
+            "== "*)
+                printf "%s%s%s\n" "${C_BOLD}${C_CYAN}" "${line}" "${C_RESET}"
+                ;;
+            "Hints:")
+                printf "%s%s%s\n" "${C_BOLD}${C_YELLOW}" "${line}" "${C_RESET}"
+                ;;
+            "Result: PASS"*)
+                printf "%s%s%s\n" "${C_BOLD}${C_GREEN}" "${line}" "${C_RESET}"
+                ;;
+            "Result: FAILED"*)
+                printf "%s%s%s\n" "${C_BOLD}${C_RED}" "${line}" "${C_RESET}"
+                ;;
+            "Skip: "*|"Warning: "*)
+                printf "%s%s%s\n" "${C_YELLOW}" "${line}" "${C_RESET}"
+                ;;
+            "Error: "*)
+                printf "%s%s%s\n" "${C_RED}" "${line}" "${C_RESET}"
+                ;;
+            "[["*"]")
+                printf "%s%s%s\n" "${C_CYAN}" "${line}" "${C_RESET}"
+                ;;
+            *)
+                print -- "${line}"
+                ;;
+        esac
+    done < "${report_file}"
+}
+
 usage() {
     cat <<EOF
 Usage: ${SCRIPT_NAME} [--build-dir <dir> | --package <tar.gz>]
@@ -217,14 +270,14 @@ if [[ -s "${missing_all_file}" ]]; then
     } >> "${REPORT_TARGET}"
 fi
 
-cat "${REPORT_TARGET}"
+print_report "${REPORT_TARGET}"
 
 if [[ "${missing_total}" -gt 0 ]]; then
-    echo "Result: FAILED (${missing_total} missing symbols across ${missing_bins} binaries)." >&2
+    printf "%sResult: FAILED (%d missing symbols across %d binaries).%s\n" "${C_BOLD}${C_RED}" "${missing_total}" "${missing_bins}" "${C_RESET}" >&2
     if [[ "${WARN_ONLY}" == "1" ]]; then
         exit 0
     fi
     exit 2
 fi
 
-echo "Result: PASS (no missing symbols)." >&2
+printf "%sResult: PASS (no missing symbols).%s\n" "${C_BOLD}${C_GREEN}" "${C_RESET}" >&2
