@@ -1,5 +1,5 @@
 diff --git a/Source/JavaScriptCore/Sources.txt b/Source/JavaScriptCore/Sources.txt
-index 9379ea75e4bdb2ca496d6af712ec5a89ca2a3468..98e053223dcc66ec0ddb97d1d0818f0b9e92ffb7 100644
+index 9379ea75e4bd..98e053223dcc 100644
 --- a/Source/JavaScriptCore/Sources.txt
 +++ b/Source/JavaScriptCore/Sources.txt
 @@ -64,6 +64,7 @@ assembler/Printer.cpp
@@ -10,8 +10,143 @@ index 9379ea75e4bdb2ca496d6af712ec5a89ca2a3468..98e053223dcc66ec0ddb97d1d0818f0b
  
  b3/air/AirAllocateRegistersAndStackAndGenerateCode.cpp
  b3/air/AirAllocateRegistersAndStackByLinearScan.cpp
+diff --git a/Source/JavaScriptCore/assembler/FastJITPermissions.h b/Source/JavaScriptCore/assembler/FastJITPermissions.h
+index 96d6b1d288e0..cd988d1d71ba 100644
+--- a/Source/JavaScriptCore/assembler/FastJITPermissions.h
++++ b/Source/JavaScriptCore/assembler/FastJITPermissions.h
+@@ -29,6 +29,7 @@
+ 
+ #include "JSCConfig.h"
+ 
++#include <cstdint>
+ #include <wtf/Platform.h>
+ 
+ #if USE(PTHREAD_JIT_PERMISSIONS_API)
+@@ -37,6 +38,49 @@
+ #include <os/thread_self_restrict.h> 
+ #endif
+ 
++#if !USE(PTHREAD_JIT_PERMISSIONS_API) && !USE(APPLE_INTERNAL_SDK) && PLATFORM(IOS) && !PLATFORM(IOS_FAMILY_SIMULATOR)
++static constexpr uintptr_t fastJITPermissionsSupportAddress = 0x0000000fffffc10cULL;
++static constexpr uintptr_t fastJITPermissionsRWAddress = 0x0000000fffffc110ULL;
++static constexpr uintptr_t fastJITPermissionsRXAddress = 0x0000000fffffc118ULL;
++
++static ALWAYS_INLINE bool fastJITPermissionsAddressFallbackIsSupported()
++{
++    return *reinterpret_cast<volatile const uint8_t*>(fastJITPermissionsSupportAddress);
++}
++
++static ALWAYS_INLINE void threadSelfRestrictRWXWithAddressFallback(uintptr_t permissionAddress)
++{
++    uintptr_t permissionValue = *reinterpret_cast<volatile const uintptr_t*>(permissionAddress);
++    asm volatile(
++        "msr S3_6_C15_C1_5, %x0\n"
++        "isb\n"
++        :
++        : "r"(permissionValue)
++        : "memory");
++
++    uintptr_t readBack = 0;
++    asm volatile(
++        "mrs %x0, S3_6_C15_C1_5\n"
++        : "=r"(readBack)
++        :
++        : "memory");
++    RELEASE_ASSERT(readBack == permissionValue);
++}
++#endif
++
++static ALWAYS_INLINE bool threadSelfRestrictRWXIsSupported()
++{
++#if USE(PTHREAD_JIT_PERMISSIONS_API)
++    return !!pthread_jit_write_protect_supported_np();
++#elif USE(APPLE_INTERNAL_SDK)
++    return !!os_thread_self_restrict_rwx_is_supported();
++#elif !USE(PTHREAD_JIT_PERMISSIONS_API) && !USE(APPLE_INTERNAL_SDK) && PLATFORM(IOS) && !PLATFORM(IOS_FAMILY_SIMULATOR)
++    return fastJITPermissionsAddressFallbackIsSupported();
++#else
++    return false;
++#endif
++}
++
+ static ALWAYS_INLINE void threadSelfRestrictRWXToRW()
+ {
+     ASSERT(g_jscConfig.useFastJITPermissions);
+@@ -45,6 +89,8 @@ static ALWAYS_INLINE void threadSelfRestrictRWXToRW()
+     pthread_jit_write_protect_np(false);
+ #elif USE(APPLE_INTERNAL_SDK)
+     os_thread_self_restrict_rwx_to_rw();
++#elif !USE(PTHREAD_JIT_PERMISSIONS_API) && !USE(APPLE_INTERNAL_SDK) && PLATFORM(IOS) && !PLATFORM(IOS_FAMILY_SIMULATOR)
++    threadSelfRestrictRWXWithAddressFallback(fastJITPermissionsRWAddress);
+ #else
+     bool tautologyToIgnoreWarning = true;
+     if (tautologyToIgnoreWarning)
+@@ -60,6 +106,8 @@ static ALWAYS_INLINE void threadSelfRestrictRWXToRX()
+     pthread_jit_write_protect_np(true);
+ #elif USE(APPLE_INTERNAL_SDK)
+     os_thread_self_restrict_rwx_to_rx();
++#elif !USE(PTHREAD_JIT_PERMISSIONS_API) && !USE(APPLE_INTERNAL_SDK) && PLATFORM(IOS) && !PLATFORM(IOS_FAMILY_SIMULATOR)
++    threadSelfRestrictRWXWithAddressFallback(fastJITPermissionsRXAddress);
+ #else
+     bool tautologyToIgnoreWarning = true;
+     if (tautologyToIgnoreWarning)
+diff --git a/Source/JavaScriptCore/jit/ExecutableAllocator.cpp b/Source/JavaScriptCore/jit/ExecutableAllocator.cpp
+index 9a53d7b3286c..39e096184918 100644
+--- a/Source/JavaScriptCore/jit/ExecutableAllocator.cpp
++++ b/Source/JavaScriptCore/jit/ExecutableAllocator.cpp
+@@ -409,11 +409,7 @@ static ALWAYS_INLINE JITReservation initializeJITPageReservation()
+ 
+         bool fastJITPermissionsIsSupported = false;
+ #if OS(DARWIN) && CPU(ARM64)
+-#if USE(PTHREAD_JIT_PERMISSIONS_API) 
+-        fastJITPermissionsIsSupported = !!pthread_jit_write_protect_supported_np();
+-#elif USE(APPLE_INTERNAL_SDK)
+-        fastJITPermissionsIsSupported = !!os_thread_self_restrict_rwx_is_supported();
+-#endif
++        fastJITPermissionsIsSupported = threadSelfRestrictRWXIsSupported();
+ #endif
+         g_jscConfig.useFastJITPermissions = fastJITPermissionsIsSupported;
+ 
+diff --git a/Source/JavaScriptCore/runtime/JSDateMath.cpp b/Source/JavaScriptCore/runtime/JSDateMath.cpp
+index d9d1c42d1746..7b59ce282748 100644
+--- a/Source/JavaScriptCore/runtime/JSDateMath.cpp
++++ b/Source/JavaScriptCore/runtime/JSDateMath.cpp
+@@ -79,7 +79,7 @@
+ #include <wtf/unicode/CharacterNames.h>
+ #include <wtf/unicode/icu/ICUHelpers.h>
+ 
+-#if U_ICU_VERSION_MAJOR_NUM >= 69 || (U_ICU_VERSION_MAJOR_NUM == 68 && USE(APPLE_INTERNAL_SDK))
++#if PLATFORM(IOS_FAMILY) || U_ICU_VERSION_MAJOR_NUM >= 69 || (U_ICU_VERSION_MAJOR_NUM == 68 && USE(APPLE_INTERNAL_SDK))
+ #define HAVE_ICU_C_TIMEZONE_API 1
+ #ifdef U_HIDE_DRAFT_API
+ #undef U_HIDE_DRAFT_API
+@@ -98,6 +98,24 @@
+ #define U_SHOW_CPLUSPLUS_API 0
+ #endif
+ 
++#if HAVE(ICU_C_TIMEZONE_API) && PLATFORM(IOS_FAMILY) && !defined(UCAL_TZ_LOCAL_FORMER)
++enum UTimeZoneLocalOption {
++    UCAL_TZ_LOCAL_FORMER = 0,
++    UCAL_TZ_LOCAL_LATTER = 1,
++    UCAL_TZ_LOCAL_STANDARD_FORMER = 2,
++    UCAL_TZ_LOCAL_STANDARD_LATTER = 3
++};
++typedef enum UTimeZoneLocalOption UTimeZoneLocalOption;
++
++U_CAPI void U_EXPORT2
++ucal_getTimeZoneOffsetFromLocal(const UCalendar* cal,
++    UTimeZoneLocalOption nonExistingTimeOpt,
++    UTimeZoneLocalOption duplicatedTimeOpt,
++    int32_t* rawOffset,
++    int32_t* dstOffset,
++    UErrorCode* status);
++#endif
++
+ namespace JSC {
+ 
+ #if PLATFORM(COCOA)
 diff --git a/Source/JavaScriptCore/runtime/JSGlobalObject.h b/Source/JavaScriptCore/runtime/JSGlobalObject.h
-index 20559940bb03404ccce20032e8e231d895503e48..4d32d4625a1fcbadd3d1cd9093772a1a966ce9f2 100644
+index 20559940bb03..4d32d4625a1f 100644
 --- a/Source/JavaScriptCore/runtime/JSGlobalObject.h
 +++ b/Source/JavaScriptCore/runtime/JSGlobalObject.h
 @@ -57,7 +57,13 @@
@@ -28,22 +163,8 @@ index 20559940bb03404ccce20032e8e231d895503e48..4d32d4625a1fcbadd3d1cd9093772a1a
  #define JS_GLOBAL_OBJECT_ADDITIONS_2
  #define JS_GLOBAL_OBJECT_ADDITIONS_3
  #define JS_GLOBAL_OBJECT_ADDITIONS_4
-diff --git a/Source/WTF/wtf/posix/ThreadingPOSIX.cpp b/Source/WTF/wtf/posix/ThreadingPOSIX.cpp
-index e5cac15122abc7ea9a785c87f56333a4afe7deac..10aad2b61c5fb4f4b273e2c48e97b56906a8441c 100644
---- a/Source/WTF/wtf/posix/ThreadingPOSIX.cpp
-+++ b/Source/WTF/wtf/posix/ThreadingPOSIX.cpp
-@@ -530,8 +530,8 @@ Thread& Thread::initializeTLS(Ref<Thread>&& thread)
-     ASSERT(s_key != InvalidThreadSpecificKey);
-     threadSpecificSet(s_key, &threadInTLS);
- #else
--    _pthread_setspecific_direct(WTF_THREAD_DATA_KEY, &threadInTLS);
-     pthread_key_init_np(WTF_THREAD_DATA_KEY, &destructTLS);
-+    _pthread_setspecific_direct(WTF_THREAD_DATA_KEY, &threadInTLS);
- #endif
-     return threadInTLS;
- }
 diff --git a/Source/WebCore/Configurations/WebCore.xcconfig b/Source/WebCore/Configurations/WebCore.xcconfig
-index 93ec77d9dd4cb7b9e8cf642612d051747112fae2..0a5af1888f3a412c8eddc54c8a7d874252c54e6e 100644
+index 93ec77d9dd4c..0a5af1888f3a 100644
 --- a/Source/WebCore/Configurations/WebCore.xcconfig
 +++ b/Source/WebCore/Configurations/WebCore.xcconfig
 @@ -63,7 +63,7 @@ FRAMEWORK_SEARCH_PATHS[sdk=macosx*] = $(WK_QUOTED_OVERRIDE_FRAMEWORKS_DIR);
@@ -56,7 +177,7 @@ index 93ec77d9dd4cb7b9e8cf642612d051747112fae2..0a5af1888f3a412c8eddc54c8a7d8742
  LIBRARY_SEARCH_PATHS = "$(SDK_DIR)$(WEBCORE_LIBRARY_DIR)" $(SDK_DIR)$(WK_LIBRARY_INSTALL_PATH) $(inherited);
  
 diff --git a/Source/WebCore/SourcesCocoa.txt b/Source/WebCore/SourcesCocoa.txt
-index 30f84fdb7faf625dc978705fcd98cd8e8d0b9985..ace3bbd5c222e81de73f42902cbfc77a6e6bd591 100644
+index 30f84fdb7faf..ace3bbd5c222 100644
 --- a/Source/WebCore/SourcesCocoa.txt
 +++ b/Source/WebCore/SourcesCocoa.txt
 @@ -669,6 +669,7 @@ rendering/RenderThemeIOS.mm
@@ -68,7 +189,7 @@ index 30f84fdb7faf625dc978705fcd98cd8e8d0b9985..ace3bbd5c222e81de73f42902cbfc77a
  // The following files aren't unified with others to prevent them from being merged
  // with files that include system headers that include system OpenGL headers.
 diff --git a/Source/WebCore/bindings/js/JSDOMGlobalObject.cpp b/Source/WebCore/bindings/js/JSDOMGlobalObject.cpp
-index 7aa5fc6e2fca3610a8499183acfffdb8be8ffe17..f9d819a80fd28301ee5b8b109551508f87f56cda 100644
+index 7aa5fc6e2fca..f9d819a80fd2 100644
 --- a/Source/WebCore/bindings/js/JSDOMGlobalObject.cpp
 +++ b/Source/WebCore/bindings/js/JSDOMGlobalObject.cpp
 @@ -62,11 +62,12 @@
@@ -140,192 +261,8 @@ index 7aa5fc6e2fca3610a8499183acfffdb8be8ffe17..f9d819a80fd28301ee5b8b109551508f
      });
  }
  
-diff --git a/Source/WebCore/bindings/scripts/CodeGeneratorJS.pm b/Source/WebCore/bindings/scripts/CodeGeneratorJS.pm
-index 671fb4d06f556e3eab93e3ae75e4dcaf0ef1a39c..224c3018065bce90cb1a6f5b33eaa660a726b1b8 100644
---- a/Source/WebCore/bindings/scripts/CodeGeneratorJS.pm
-+++ b/Source/WebCore/bindings/scripts/CodeGeneratorJS.pm
-@@ -2068,6 +2068,23 @@ sub IsAcceleratedDOMAttribute
-     return 1;
- }
- 
-+sub EffectiveDOMJITAttribute
-+{
-+    my ($object) = @_;
-+
-+    return undef unless $object->extendedAttributes->{DOMJIT};
-+
-+    # Mixed-mode iOS builds pair public WebCore/WebKit sources with the stock
-+    # JavaScriptCore from the device. The stock JSC contains Apple-private
-+    # DOMJIT additions that are not present in the public headers, so exposing
-+    # public-source DOMJIT metadata makes the stock JSC execute snippet
-+    # generators against the wrong private layout and trips PAC on arm64e.
-+    # Default to the generic accessor/function path unless explicitly opted in.
-+    return undef unless $ENV{WK_ENABLE_PUBLIC_DOMJIT} && $ENV{WK_ENABLE_PUBLIC_DOMJIT} eq "1";
-+
-+    return $object->extendedAttributes->{DOMJIT};
-+}
-+
- sub GetJSCAttributesForAttribute
- {
-     my $interface = shift;
-@@ -2082,7 +2099,7 @@ sub GetJSCAttributesForAttribute
-     push(@specials, "JSC::PropertyAttribute::ReadOnly") if IsReadonly($attribute);
-     push(@specials, "JSC::PropertyAttribute::CustomAccessor") unless $isGlobalConstructor or IsJSBuiltin($interface, $attribute);
-     push(@specials, "JSC::PropertyAttribute::DOMAttribute") if IsAcceleratedDOMAttribute($interface, $attribute);
--    push(@specials, "JSC::PropertyAttribute::DOMJITAttribute") if $attribute->extendedAttributes->{DOMJIT};
-+    push(@specials, "JSC::PropertyAttribute::DOMJITAttribute") if EffectiveDOMJITAttribute($attribute);
-     push(@specials, "JSC::PropertyAttribute::Accessor | JSC::PropertyAttribute::Builtin") if  IsJSBuiltin($interface, $attribute);
-     return "static_cast<unsigned>(" . ((@specials > 0) ? join(" | ", @specials) : "0") . ")";
- }
-@@ -3111,7 +3128,7 @@ sub GenerateHeader
-                 $numCachedAttributes++;
-                 push(@headerContent, "#endif\n") if $conditionalString;
-             }
--            $hasDOMJITAttributes = 1 if $attribute->extendedAttributes->{DOMJIT};
-+            $hasDOMJITAttributes = 1 if EffectiveDOMJITAttribute($attribute);
-         }
-     }
- 
-@@ -3301,7 +3318,7 @@ sub GenerateHeader
-     GeneratePrototypeDeclaration(\@headerContent, $className, $interface) if HeaderNeedsPrototypeDeclaration($interface);
- 
-     # CheckJSCast Snippet function.
--    if ($interface->extendedAttributes->{DOMJIT}) {
-+    if (EffectiveDOMJITAttribute($interface)) {
-         $headerIncludes{"<JavaScriptCore/Snippet.h>"} = 1;
-         push(@headerContent, "#if ENABLE(JIT)\n");
-         push(@headerContent, "Ref<JSC::Snippet> checkSubClassSnippetFor${className}();\n");
-@@ -3312,8 +3329,9 @@ sub GenerateHeader
-         $headerIncludes{"<JavaScriptCore/DOMJITGetterSetter.h>"} = 1;
-         push(@headerContent,"// DOM JIT Attributes\n\n");
-         foreach my $attribute (@{$interface->attributes}) {
--            next unless $attribute->extendedAttributes->{DOMJIT};
--            assert("Only DOMJIT=Getter is supported for attributes") unless $codeGenerator->ExtendedAttributeContains($attribute->extendedAttributes->{DOMJIT}, "Getter");
-+            my $domJITAttribute = EffectiveDOMJITAttribute($attribute);
-+            next unless $domJITAttribute;
-+            assert("Only DOMJIT=Getter is supported for attributes") unless $codeGenerator->ExtendedAttributeContains($domJITAttribute, "Getter");
- 
-             my $interfaceName = $interface->type->name;
-             my $className = $interfaceName . $codeGenerator->WK_ucfirst($attribute->name);
-@@ -3412,7 +3430,7 @@ sub GeneratePropertiesHashTable
-         my $special = GetJSCAttributesForAttribute($interface, $attribute);
-         push(@$hashSpecials, $special);
- 
--        if ($attribute->extendedAttributes->{DOMJIT}) {
-+        if (EffectiveDOMJITAttribute($attribute)) {
-             push(@$hashValue1, "&DOMJITAttributeFor" . $interface->type->name . $codeGenerator->WK_ucfirst($attribute->name));
-         } else {
-             my $getter = GetAttributeGetterName($interface, $className, $attribute);
-@@ -3464,7 +3482,7 @@ sub GeneratePropertiesHashTable
- 
-         my $functionLength = GetFunctionLength($operation);
- 
--        if ($operation->extendedAttributes->{DOMJIT}) {
-+        if (EffectiveDOMJITAttribute($operation)) {
-             push(@$hashValue2, "&DOMJITSignatureFor" . $interface->type->name . $codeGenerator->WK_ucfirst($operation->name));
-         } else {
-             push(@$hashValue2, $functionLength);
-@@ -4329,7 +4347,7 @@ sub GenerateImplementation
-             push(@implContent, "#if ${conditionalString}\n") if $conditionalString;
-             my $functionName = GetFunctionName($interface, $className, $operation);
-             push(@implContent, "static JSC_DECLARE_HOST_FUNCTION(${functionName});\n");
--            if ($operation->extendedAttributes->{DOMJIT}) {
-+            if (EffectiveDOMJITAttribute($operation)) {
-                 $implIncludes{"DOMJITIDLType.h"} = 1;
-                 my $nameOfFunctionWithoutTypeCheck = $codeGenerator->WK_lcfirst($functionName) . "WithoutTypeCheck";
-                 my $functionSignature = "extern \"C\" { static JSC_DECLARE_JIT_OPERATION_WITHOUT_WTF_INTERNAL(${nameOfFunctionWithoutTypeCheck}, JSC::EncodedJSValue, (JSC::JSGlobalObject*, $className*";
-@@ -4364,13 +4382,14 @@ sub GenerateImplementation
- 
-     if ($numOperations > 0) {
-         foreach my $operation (@{$interface->operations}) {
--            next unless $operation->extendedAttributes->{DOMJIT};
-+            my $domJITAttribute = EffectiveDOMJITAttribute($operation);
-+            next unless $domJITAttribute;
-             $implIncludes{"DOMJITIDLTypeFilter.h"} = 1;
-             $implIncludes{"DOMJITAbstractHeapRepository.h"} = 1;
- 
-             my $isOverloaded = $operation->{overloads} && @{$operation->{overloads}} > 1;
-             die "Overloads is not supported in DOMJIT" if $isOverloaded;
--            die "Currently ReadDOM value is only allowed" unless $codeGenerator->ExtendedAttributeContains($operation->extendedAttributes->{DOMJIT}, "ReadDOM");
-+            die "Currently ReadDOM value is only allowed" unless $codeGenerator->ExtendedAttributeContains($domJITAttribute, "ReadDOM");
- 
-             my $functionName = GetFunctionName($interface, $className, $operation);
-             my $nameOfFunctionWithoutTypeCheck = $codeGenerator->WK_lcfirst($functionName) . "WithoutTypeCheck";
-@@ -4395,8 +4414,9 @@ sub GenerateImplementation
- 
-     if ($numAttributes > 0 || NeedsConstructorProperty($interface)) {
-         foreach my $attribute (@{$interface->attributes}) {
--            next unless $attribute->extendedAttributes->{DOMJIT};
--            assert("Only DOMJIT=Getter is supported for attributes") unless $codeGenerator->ExtendedAttributeContains($attribute->extendedAttributes->{DOMJIT}, "Getter");
-+            my $domJITAttribute = EffectiveDOMJITAttribute($attribute);
-+            next unless $domJITAttribute;
-+            assert("Only DOMJIT=Getter is supported for attributes") unless $codeGenerator->ExtendedAttributeContains($domJITAttribute, "Getter");
- 
-             my $conditionalString = $codeGenerator->GenerateConditionalString($attribute);
-             push(@implContent, "#if ${conditionalString}\n\n") if $conditionalString;
-@@ -4405,7 +4425,7 @@ sub GenerateImplementation
-             my $domJITClassName = $generatorName . "Attribute";
-             my $getter = GetAttributeGetterName($interface, $className, $attribute);
-             my $resultType = "JSC::SpecBytecodeTop";
--            if ($attribute->extendedAttributes->{DOMJIT}) {
-+            if (EffectiveDOMJITAttribute($attribute)) {
-                 $resultType = GetResultTypeFilter($interface, $attribute->type);
-             }
-             push(@implContent, "static const JSC::DOMJIT::GetterSetter DOMJITAttributeFor${generatorName} {\n");
-@@ -4481,11 +4501,11 @@ sub GenerateImplementation
-             push(@specials, "JSC::PropertyAttribute::DontDelete") if IsLegacyUnforgeable($interface, $attribute);
-             push(@specials, "JSC::PropertyAttribute::ReadOnly") if IsReadonly($attribute);
-             push(@specials, "JSC::PropertyAttribute::DOMAttribute") if IsAcceleratedDOMAttribute($interface, $attribute);
--            push(@specials, "JSC::PropertyAttribute::DOMJITAttribute") if $attribute->extendedAttributes->{DOMJIT};
-+            push(@specials, "JSC::PropertyAttribute::DOMJITAttribute") if EffectiveDOMJITAttribute($attribute);
-             my $special = "static_cast<unsigned>(" . ((@specials > 0) ? join(" | ", @specials) : "0") . ")";
-             push(@hashSpecials, $special);
- 
--            if ($attribute->extendedAttributes->{DOMJIT}) {
-+            if (EffectiveDOMJITAttribute($attribute)) {
-                 push(@hashValue1, "&DOMJITAttributeFor" . $interface->type->name . $codeGenerator->WK_ucfirst($attribute->name));
-             } else {
-                 my $getter = GetAttributeGetterName($interface, $className, $attribute);
-@@ -4518,7 +4538,7 @@ sub GenerateImplementation
-             push(@hashValue1, $functionName);
- 
-             my $functionLength = GetFunctionLength($operation);
--            if ($operation->extendedAttributes->{DOMJIT}) {
-+            if (EffectiveDOMJITAttribute($operation)) {
-                 push(@hashValue2, "DOMJITFunctionFor" . $interface->type->name . $codeGenerator->WK_ucfirst($operation->name));
-             } else {
-                 push(@hashValue2, $functionLength);
-@@ -4696,7 +4716,7 @@ sub GenerateImplementation
-     } else {
-         push(@implContent, "nullptr");
-     }
--    if ($interface->extendedAttributes->{DOMJIT}) {
-+    if (EffectiveDOMJITAttribute($interface)) {
-         push(@implContent, "\n");
-         push(@implContent, "#if ENABLE(JIT)\n");
-         push(@implContent, ", &checkSubClassSnippetFor${className}\n");
-@@ -5803,7 +5823,7 @@ sub GenerateOperationDefinition
-     }
- 
- 
--    if ($operation->extendedAttributes->{DOMJIT}) {
-+    if (EffectiveDOMJITAttribute($operation)) {
-         if ($conditional) {
-             my $conditionalString = $codeGenerator->GenerateConditionalStringFromAttributeValue($conditional);
-             push(@$outputArray, "#if ${conditionalString}\n");
-@@ -8106,8 +8126,8 @@ sub ComputeFunctionSpecial
-     } else {
-         push(@specials, "JSC::PropertyAttribute::Function");
-     }
--    if ($operation->extendedAttributes->{DOMJIT}) {
--        push(@specials, "JSC::PropertyAttribute::DOMJITFunction") if $operation->extendedAttributes->{DOMJIT};
-+    if (EffectiveDOMJITAttribute($operation)) {
-+        push(@specials, "JSC::PropertyAttribute::DOMJITFunction") if EffectiveDOMJITAttribute($operation);
-     }
-     return "static_cast<unsigned>(" . ((@specials > 0) ? join(" | ", @specials) : "0") . ")";
- }
 diff --git a/Source/WebCore/loader/FrameLoader.cpp b/Source/WebCore/loader/FrameLoader.cpp
-index eb2c3f528daf609413901e24ec934a95d4034293..66abc092b832489a62ab85635a3a199560cef4c7 100644
+index eb2c3f528daf..66abc092b832 100644
 --- a/Source/WebCore/loader/FrameLoader.cpp
 +++ b/Source/WebCore/loader/FrameLoader.cpp
 @@ -164,6 +164,13 @@ namespace WebCore {
@@ -355,7 +292,7 @@ index eb2c3f528daf609413901e24ec934a95d4034293..66abc092b832489a62ab85635a3a1995
  
  String FrameLoader::navigatorPlatform() const
 diff --git a/Source/WebKit/Shared/WebTouchEvent.cpp b/Source/WebKit/Shared/WebTouchEvent.cpp
-index 8c7b4a12d484ae0ce59036a904e03c12979d2a13..38592a9cad8dd1ff0d46ba57366683d1d4ed6317 100644
+index 8c7b4a12d484..38592a9cad8d 100644
 --- a/Source/WebKit/Shared/WebTouchEvent.cpp
 +++ b/Source/WebKit/Shared/WebTouchEvent.cpp
 @@ -61,3 +61,92 @@ bool WebTouchEvent::allTouchPointsAreReleased() const
@@ -452,7 +389,7 @@ index 8c7b4a12d484ae0ce59036a904e03c12979d2a13..38592a9cad8dd1ff0d46ba57366683d1
 +
 +#endif // !ENABLE(TOUCH_EVENTS) && PLATFORM(IOS_FAMILY)
 diff --git a/Source/WebKit/Shared/WebTouchEvent.h b/Source/WebKit/Shared/WebTouchEvent.h
-index 44d9a7b5447ba28262192137df185ecc62b52da8..bb7acb751700176a3434e0c2408f5449f9505fde 100644
+index 44d9a7b5447b..bb7acb751700 100644
 --- a/Source/WebKit/Shared/WebTouchEvent.h
 +++ b/Source/WebKit/Shared/WebTouchEvent.h
 @@ -205,4 +205,45 @@ private:
@@ -502,7 +439,7 @@ index 44d9a7b5447ba28262192137df185ecc62b52da8..bb7acb751700176a3434e0c2408f5449
 +
  } // namespace WebKit
 diff --git a/Source/WebKit/UIProcess/WebPageProxy.cpp b/Source/WebKit/UIProcess/WebPageProxy.cpp
-index dd612de3322e9679e938b07943c1301e3bbc0f0d..eb977c5f33360c48e89c752f41e4b37ae7136945 100644
+index dd612de3322e..eb977c5f3336 100644
 --- a/Source/WebKit/UIProcess/WebPageProxy.cpp
 +++ b/Source/WebKit/UIProcess/WebPageProxy.cpp
 @@ -357,6 +357,13 @@ namespace WebKit {
@@ -529,7 +466,7 @@ index dd612de3322e9679e938b07943c1301e3bbc0f0d..eb977c5f33360c48e89c752f41e4b37a
          return;
      m_userAgent = WTFMove(userAgent);
 diff --git a/Source/WebKit/UIProcess/ios/WebPageProxyIOS.mm b/Source/WebKit/UIProcess/ios/WebPageProxyIOS.mm
-index d4580129c297a64e92632567f6a26c4da188db88..0c5ff882da6f9bd6a6ad850238ef8cdb8416bd42 100644
+index d4580129c297..0c5ff882da6f 100644
 --- a/Source/WebKit/UIProcess/ios/WebPageProxyIOS.mm
 +++ b/Source/WebKit/UIProcess/ios/WebPageProxyIOS.mm
 @@ -93,6 +93,13 @@ static constexpr CGFloat kTargetFullscreenAspectRatio = 1.7778;
@@ -590,7 +527,7 @@ index d4580129c297a64e92632567f6a26c4da188db88..0c5ff882da6f9bd6a6ad850238ef8cdb
  
  WebContentMode WebPageProxy::effectiveContentModeAfterAdjustingPolicies(API::WebsitePolicies& policies, const WebCore::ResourceRequest& request)
 diff --git a/Source/WebKit/WebProcess/WebPage/EventDispatcher.cpp b/Source/WebKit/WebProcess/WebPage/EventDispatcher.cpp
-index 438e42ec2e84ad6f2ccdf820acd2b101bd3adf90..3e59251aebc75a63d50e4afaf2614793062fd7ac 100644
+index 438e42ec2e84..3e59251aebc7 100644
 --- a/Source/WebKit/WebProcess/WebPage/EventDispatcher.cpp
 +++ b/Source/WebKit/WebProcess/WebPage/EventDispatcher.cpp
 @@ -259,6 +259,19 @@ void EventDispatcher::dispatchTouchEvents()
@@ -614,7 +551,7 @@ index 438e42ec2e84ad6f2ccdf820acd2b101bd3adf90..3e59251aebc75a63d50e4afaf2614793
  
  void EventDispatcher::dispatchWheelEventViaMainThread(WebCore::PageIdentifier pageID, const WebWheelEvent& wheelEvent, OptionSet<WheelEventProcessingSteps> processingSteps, WheelEventOrigin wheelEventOrigin)
 diff --git a/Source/WebKit/WebProcess/WebPage/EventDispatcher.h b/Source/WebKit/WebProcess/WebPage/EventDispatcher.h
-index 82f90d4228ea83f02c83fc4c46c8cef7014e16a7..9ff54279e7bda17ee473d6916199b9747c7465af 100644
+index 82f90d4228ea..9ff54279e7bd 100644
 --- a/Source/WebKit/WebProcess/WebPage/EventDispatcher.h
 +++ b/Source/WebKit/WebProcess/WebPage/EventDispatcher.h
 @@ -26,7 +26,7 @@
@@ -645,7 +582,7 @@ index 82f90d4228ea83f02c83fc4c46c8cef7014e16a7..9ff54279e7bda17ee473d6916199b974
      void touchEventWithoutCallback(WebCore::PageIdentifier, const WebTouchEvent&);
  #endif
 diff --git a/Source/WebKit/WebProcess/WebPage/EventDispatcher.messages.in b/Source/WebKit/WebProcess/WebPage/EventDispatcher.messages.in
-index 33eccd6187e1dac050298d89429b609a88740338..6b82bdba049fd40198432f382162f0e684a42b8b 100644
+index 33eccd6187e1..6b82bdba049f 100644
 --- a/Source/WebKit/WebProcess/WebPage/EventDispatcher.messages.in
 +++ b/Source/WebKit/WebProcess/WebPage/EventDispatcher.messages.in
 @@ -22,7 +22,7 @@
@@ -658,7 +595,7 @@ index 33eccd6187e1dac050298d89429b609a88740338..6b82bdba049fd40198432f382162f0e6
      TouchEventWithoutCallback(WebCore::PageIdentifier pageID, WebKit::WebTouchEvent event)
  #endif
 diff --git a/Source/WebKit/WebProcess/WebPage/WebPage.cpp b/Source/WebKit/WebProcess/WebPage/WebPage.cpp
-index e8c4b134fe3d066d844f120a29a1f739b1c7eabb..2294c55af3b1eb2afb19da76e167857b25ebb0da 100644
+index e8c4b134fe3d..2294c55af3b1 100644
 --- a/Source/WebKit/WebProcess/WebPage/WebPage.cpp
 +++ b/Source/WebKit/WebProcess/WebPage/WebPage.cpp
 @@ -3420,6 +3420,13 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent)
@@ -676,7 +613,7 @@ index e8c4b134fe3d066d844f120a29a1f739b1c7eabb..2294c55af3b1eb2afb19da76e167857b
  {
      m_page->pointerCaptureController().cancelPointer(pointerId, documentPoint);
 diff --git a/Source/WebKit/WebProcess/WebPage/WebPage.h b/Source/WebKit/WebProcess/WebPage/WebPage.h
-index 4f454e2994abeccdea7fbf4f47a650ccaa8199ea..43c2a9af5072400bf6d280d436e9e57049c89291 100644
+index 4f454e2994ab..43c2a9af5072 100644
 --- a/Source/WebKit/WebProcess/WebPage/WebPage.h
 +++ b/Source/WebKit/WebProcess/WebPage/WebPage.h
 @@ -1753,9 +1753,12 @@ private:
@@ -694,7 +631,7 @@ index 4f454e2994abeccdea7fbf4f47a650ccaa8199ea..43c2a9af5072400bf6d280d436e9e570
  #elif ENABLE(TOUCH_EVENTS)
      void touchEvent(const WebTouchEvent&);
 diff --git a/Source/WebKit/WebProcess/WebPage/WebPage.messages.in b/Source/WebKit/WebProcess/WebPage/WebPage.messages.in
-index 2261be7e05aede84ac7b18f67e8dfe08da78f55a..a3f7f4d632e6900027d8d0301a09cee5ae16392f 100644
+index 2261be7e05ae..a3f7f4d632e6 100644
 --- a/Source/WebKit/WebProcess/WebPage/WebPage.messages.in
 +++ b/Source/WebKit/WebProcess/WebPage/WebPage.messages.in
 @@ -151,7 +151,7 @@ GenerateSyntheticEditingCommand(enum:uint8_t WebKit::SyntheticEditingCommandType
@@ -706,17 +643,3 @@ index 2261be7e05aede84ac7b18f67e8dfe08da78f55a..a3f7f4d632e6900027d8d0301a09cee5
      ResetPotentialTapSecurityOrigin()
  #endif
  #if !ENABLE(IOS_TOUCH_EVENTS) && ENABLE(TOUCH_EVENTS)
-diff --git a/Source/bmalloc/bmalloc/PerThread.h b/Source/bmalloc/bmalloc/PerThread.h
-index 615f5128dfa3571ab95fed19454f124860b67e3c..0b3023a411f4ab4e17d8b7f02e66c8e51557f903 100644
---- a/Source/bmalloc/bmalloc/PerThread.h
-+++ b/Source/bmalloc/bmalloc/PerThread.h
-@@ -85,8 +85,8 @@ template<> struct PerThreadStorage<PerHeapKind<Cache>> {
-         BUNUSED(destructor);
-         BCRASH();
- #else
--        _pthread_setspecific_direct(key, object);
-         pthread_key_init_np(key, destructor);
-+        _pthread_setspecific_direct(key, object);
- #endif
-     }
- #pragma clang diagnostic pop

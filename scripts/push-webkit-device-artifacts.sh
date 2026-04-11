@@ -11,7 +11,6 @@ SSH_PORT=""
 SSH_USER=""
 REMOTE_DIR="/var/root"
 KEEP_REMOTE_PACKAGE=0
-INCLUDE_JSC=1
 STEP_INDEX=0
 TOTAL_STEPS=3
 
@@ -57,7 +56,6 @@ usage() {
 Usage: ${SCRIPT_NAME} [--package <tar.gz-path>]
           [--ssh-target <ssh-config-host>] [--ssh-host <host>] [--ssh-port <port>]
           [--ssh-user <user>] [--remote-dir <dir>] [--keep-remote-package]
-          [--exclude-jsc]
 
 Default behavior:
   If --package is not provided, use the newest:
@@ -66,10 +64,6 @@ Default behavior:
 Default SSH (iproxy style):
   --ssh-target ${SSH_TARGET}
   --remote-dir ${REMOTE_DIR}
-
-Notes:
-  JavaScriptCore.framework is included on push by default.
-  Pass --exclude-jsc to switch back to mixed-mode push.
 EOF
 }
 
@@ -101,10 +95,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --keep-remote-package)
             KEEP_REMOTE_PACKAGE=1
-            shift
-            ;;
-        --exclude-jsc)
-            INCLUDE_JSC=0
             shift
             ;;
         -h|--help)
@@ -159,7 +149,6 @@ log_info "Uploaded to: ${remote}:${remote_tar}"
 log_step "Extracting package on device..."
 ssh "${ssh_extra_args[@]}" "${remote}" '
 set -e
-INCLUDE_JSC='"${INCLUDE_JSC}"'
 TARGET_FRAMEWORKS_DIR="/Library/Frameworks"
 if [ -d "/var/jb/Library/Frameworks" ]; then
     TARGET_FRAMEWORKS_DIR="/var/jb/Library/Frameworks"
@@ -179,10 +168,6 @@ if [ ! -d "${TMP_DIR}/payload" ]; then
     exit 1
 fi
 
-if [ "${INCLUDE_JSC}" != "1" ]; then
-    rm -rf "${TMP_DIR}/payload/JavaScriptCore.framework"
-fi
-
 mkdir -p "${TARGET_FRAMEWORKS_DIR}"
 # Replace top-level payload entries one by one to avoid
 # "cannot overwrite directory ... with non-directory" conflicts.
@@ -194,12 +179,12 @@ find "${TMP_DIR}/payload" -mindepth 1 -maxdepth 1 | while IFS= read -r src; do
 done
 
 # Move dylibs into usr/lib (jailbreak path preferred), then remove duplicates from Frameworks.
-# mkdir -p "${TARGET_USRLIB_DIR}"
-# find "${TMP_DIR}/payload" -mindepth 1 -maxdepth 1 -type f -name "*.dylib" | while IFS= read -r dylib; do
-#     base="$(basename "${dylib}")"
-#     cp -f "${dylib}" "${TARGET_USRLIB_DIR}/${base}"
-#     rm -f "${TARGET_FRAMEWORKS_DIR}/${base}"
-# done
+mkdir -p "${TARGET_USRLIB_DIR}"
+find "${TMP_DIR}/payload" -mindepth 1 -maxdepth 1 -type f -name "*.dylib" | while IFS= read -r dylib; do
+    base="$(basename "${dylib}")"
+    cp -f "${dylib}" "${TARGET_USRLIB_DIR}/${base}"
+    rm -f "${TARGET_FRAMEWORKS_DIR}/${base}"
+done
 
 rm -rf "${TMP_DIR}"
 echo "Extracted to: ${TARGET_FRAMEWORKS_DIR}"

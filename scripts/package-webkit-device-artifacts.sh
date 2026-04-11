@@ -8,15 +8,11 @@ SOURCE_DIR="${ROOT_DIR}/WebKit"
 PRODUCT_DIR="${SOURCE_DIR}/WebKitBuild/Debug-iphoneos"
 OUTPUT_TAR=""
 PUSH_TO_DEVICE=0
-INCLUDE_JSC=1
-SKIP_ABI_CHECK=0
 SSH_TARGET="iproxy"
 SSH_HOST=""
 SSH_PORT=""
 SSH_USER=""
 REMOTE_DIR="/var/root"
-STOCK_JSC="${ROOT_DIR}/samples/device-dsc-split/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore"
-STOCK_WEBCORE="${ROOT_DIR}/samples/device-dsc-split/System/Library/PrivateFrameworks/WebCore.framework/WebCore"
 STEP_INDEX=0
 TOTAL_STEPS=0
 
@@ -77,20 +73,14 @@ usage() {
     cat <<EOF
 Usage: ${SCRIPT_NAME} [--product <Debug-iphoneos>] [--output <tar.gz-path>]
        [--ssh-target <ssh-config-host>] [--ssh-host <host>] [--ssh-port <port>] [--ssh-user <user>]
-       [--push-device] [--remote-dir <dir>] [--exclude-jsc] [--skip-abi-check]
-       [--stock-jsc <path>] [--stock-webcore <path>]
+       [--push-device] [--remote-dir <dir>]
 
 Default SSH (iproxy style):
   --ssh-target ${SSH_TARGET}
   --remote-dir ${REMOTE_DIR}
 
-Default gates (when JSC is excluded):
-  --stock-jsc ${STOCK_JSC}
-  --stock-webcore ${STOCK_WEBCORE}
-
 Notes:
-  JSC is included by default.
-  Pass --exclude-jsc to switch back to mixed-mode packaging.
+  Full-mode packaging always includes JavaScriptCore.framework.
 EOF
 }
 
@@ -107,14 +97,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --push-device)
             PUSH_TO_DEVICE=1
-            shift
-            ;;
-        --exclude-jsc)
-            INCLUDE_JSC=0
-            shift
-            ;;
-        --skip-abi-check)
-            SKIP_ABI_CHECK=1
             shift
             ;;
         --ssh-target)
@@ -135,14 +117,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --remote-dir)
             REMOTE_DIR="${2:?missing value for --remote-dir}"
-            shift 2
-            ;;
-        --stock-jsc)
-            STOCK_JSC="${2:?missing value for --stock-jsc}"
-            shift 2
-            ;;
-        --stock-webcore)
-            STOCK_WEBCORE="${2:?missing value for --stock-webcore}"
             shift 2
             ;;
         -h|--help)
@@ -170,9 +144,6 @@ if [[ -z "${OUTPUT_TAR}" ]]; then
 fi
 
 TOTAL_STEPS=5
-if [[ "${INCLUDE_JSC}" != "1" && "${SKIP_ABI_CHECK}" != "1" ]]; then
-    TOTAL_STEPS=$((TOTAL_STEPS + 2))
-fi
 
 TAR_BIN="$(pick_tar_bin)"
 if [[ "${TAR_BIN}" == "gtar" ]]; then
@@ -317,32 +288,6 @@ while IFS= read -r -d '' top_level_xpc; do
     mv "${top_level_xpc}" "${dst}"
 done < <(find "${PAYLOAD_DIR}" -mindepth 1 -maxdepth 1 -type d -name '*.xpc' -print0)
 
-if [[ "${INCLUDE_JSC}" != "1" && "${SKIP_ABI_CHECK}" != "1" ]]; then
-    ABI_CHECK_SCRIPT="${SCRIPT_DIR}/check-jsc-abi-compat.sh"
-    if [[ ! -f "${ABI_CHECK_SCRIPT}" ]]; then
-        log_error "ABI check script not found: ${ABI_CHECK_SCRIPT}"
-        exit 1
-    fi
-    if [[ ! -f "${STOCK_JSC}" ]]; then
-        log_error "Stock JSC binary does not exist: ${STOCK_JSC}"
-        exit 1
-    fi
-    log_step "Running ABI gate against stock JSC..."
-    zsh "${ABI_CHECK_SCRIPT}" --build-dir "${PAYLOAD_DIR}" --stock-jsc "${STOCK_JSC}"
-
-    LAYOUT_CHECK_SCRIPT="${SCRIPT_DIR}/check-webcore-layout-compat.sh"
-    if [[ ! -f "${LAYOUT_CHECK_SCRIPT}" ]]; then
-        log_error "Layout check script not found: ${LAYOUT_CHECK_SCRIPT}"
-        exit 1
-    fi
-    if [[ ! -f "${STOCK_WEBCORE}" ]]; then
-        log_error "Stock WebCore binary does not exist: ${STOCK_WEBCORE}"
-        exit 1
-    fi
-    log_step "Running WebCore mixed-mode layout gate..."
-    zsh "${LAYOUT_CHECK_SCRIPT}" --build-dir "${PAYLOAD_DIR}" --stock-webcore "${STOCK_WEBCORE}"
-fi
-
 log_step "Signing Mach-O binaries with ldid..."
 if ! command -v ldid >/dev/null 2>&1; then
     log_error "ldid not found in PATH."
@@ -444,9 +389,6 @@ if [[ "${PUSH_TO_DEVICE}" == "1" ]]; then
     fi
     if [[ -n "${SSH_USER}" ]]; then
         push_args+=("--ssh-user" "${SSH_USER}")
-    fi
-    if [[ "${INCLUDE_JSC}" != "1" ]]; then
-        push_args+=("--exclude-jsc")
     fi
 
     zsh "${PUSH_SCRIPT}" "${push_args[@]}"
