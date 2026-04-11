@@ -105,14 +105,31 @@ fi
 
 # ── auto-detect version ─────────────────────────────────────
 if [[ -z "${PACKAGE_VERSION}" ]]; then
-    VERSION_XCCONFIG="${SOURCE_DIR}/Configurations/Version.xcconfig"
-    if [[ -f "${VERSION_XCCONFIG}" ]]; then
-        major="$(grep 'MAJOR_VERSION' "${VERSION_XCCONFIG}" | head -1 | sed 's/.*= *//;s/[;[:space:]]*$//')"
-        minor="$(grep 'MINOR_VERSION' "${VERSION_XCCONFIG}" | head -1 | sed 's/.*= *//;s/[;[:space:]]*$//')"
-        tiny="$(grep 'TINY_VERSION'  "${VERSION_XCCONFIG}" | head -1 | sed 's/.*= *//;s/[;[:space:]]*$//')"
+    # Probe candidate paths in priority order:
+    #   1. top-level Configurations/ (e.g. open-source main branch)
+    #   2. Source/WebKit/Configurations/ (e.g. iOS 16.3.x drop)
+    #   3. Source/JavaScriptCore/Configurations/
+    VERSION_XCCONFIG=""
+    for _candidate in \
+        "${SOURCE_DIR}/Configurations/Version.xcconfig" \
+        "${SOURCE_DIR}/Source/WebKit/Configurations/Version.xcconfig" \
+        "${SOURCE_DIR}/Source/JavaScriptCore/Configurations/Version.xcconfig"
+    do
+        if [[ -f "${_candidate}" ]]; then
+            VERSION_XCCONFIG="${_candidate}"
+            break
+        fi
+    done
+
+    if [[ -n "${VERSION_XCCONFIG}" ]]; then
+        major="$(grep '^MAJOR_VERSION' "${VERSION_XCCONFIG}" | head -1 | sed 's/.*= *//;s/[;[:space:]]*$//')"
+        minor="$(grep '^MINOR_VERSION' "${VERSION_XCCONFIG}" | head -1 | sed 's/.*= *//;s/[;[:space:]]*$//')"
+        tiny="$(grep  '^TINY_VERSION'  "${VERSION_XCCONFIG}" | head -1 | sed 's/.*= *//;s/[;[:space:]]*$//')"
         PACKAGE_VERSION="${major:-0}.${minor:-0}.${tiny:-0}"
+        log_info "Version detected from: ${VERSION_XCCONFIG} -> ${PACKAGE_VERSION}"
     else
         PACKAGE_VERSION="0.0.1"
+        log_warn "Version.xcconfig not found; falling back to ${PACKAGE_VERSION}"
     fi
     # Append a timestamp suffix to distinguish rebuild iterations.
     PACKAGE_VERSION="${PACKAGE_VERSION}-$(date +%Y%m%d%H%M%S)"

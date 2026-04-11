@@ -5,8 +5,38 @@ Build an open-source version of WebKit and replace it system-wide on iOS jailbro
 ## Requirements
 
 - WebKit source code: [releases/Apple/Safari-16.4-iOS-16.4.1](https://github.com/WebKit/WebKit/releases/tag/releases/Apple/Safari-16.4-iOS-16.4.1)
-- Xcode 14.3.1 + iOS 16.5 SDK
+- Xcode 14.3.1 + iOS 16.4 SDK
 - Test device: iOS 16.4.1 (Dopamine)
+
+## Compatibility
+
+<table>
+    <tr>
+        <th>WebKit Tag</th>
+        <th>Tested on iOS</th>
+        <th>Xcode Version</th>
+        <th>iOS SDK Version</th>
+    </tr>
+    <tr>
+        <td>releases/Apple/Safari-16.3-iOS-16.3.1</td>
+        <td>16.3.1</td>
+        <td>14.2</td>
+        <td>16.2</td>
+    </tr>
+    <tr>
+        <td>releases/Apple/Safari-16.4-iOS-16.4.1</td>
+        <td>16.4.1</td>
+        <td rowspan="3">14.3.1</td>
+        <td rowspan="3">16.4</td>
+    </tr>
+    <tr>
+        <td rowspan="2">releases/Apple/Safari-16.5-iOS-16.5</td>
+        <td>16.5</td>
+    </tr>
+    <tr>
+        <td>16.5.1</td>
+    </tr>
+</table>
 
 ## How to use
 
@@ -14,7 +44,7 @@ Build an open-source version of WebKit and replace it system-wide on iOS jailbro
 2. Check out source code of WebKit and **apply patches**
 3. Compile WebKit with the following command:
 
-```
+```shell
 Tools/Scripts/build-webkit --ios-device --release --use-ccache WK_USE_CCACHE=YES ARCHS='arm64 arm64e' GCC_TREAT_WARNINGS_AS_ERRORS=NO OTHER_CFLAGS='$(inherited) -Wno-error' OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-error'
 ```
 
