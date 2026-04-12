@@ -22,7 +22,7 @@ Build an open-source version of WebKit and replace it system-wide on iOS jailbro
         <td>16.1</td>
         <td rowspan="3">14.1</td>
         <td rowspan="3">16.1</td>
-        <td rowspan="3">webkit_iOS_16.1-worktree-20260412-014749.patch</td>
+        <td rowspan="5">webkit_iOS_16.3.1-worktree-20260412-004539.patch</td>
     </tr>
     <tr>
         <td>16.1.1</td>
@@ -35,7 +35,6 @@ Build an open-source version of WebKit and replace it system-wide on iOS jailbro
         <td>16.2</td>
         <td rowspan="2">14.2</td>
         <td rowspan="2">16.2</td>
-        <td rowspan="2">webkit_iOS_16.3.1-worktree-20260412-004539.patch</td>
     </tr>
     <tr>
         <td><a href="https://github.com/WebKit/WebKit/releases/tag/releases/Apple/Safari-16.3-iOS-16.3.1">releases/Apple/Safari-16.3-iOS-16.3.1</a></td>
@@ -77,10 +76,10 @@ When building `releases/Apple/Safari-16.1-iOS-16.1` for iOS device, apply these 
 
 ```bash
 git cherry-pick --no-gpg-sign \
-21349d858b6b54828590716f8f49258f9c0082c2 \
-60cfd7b1e09680290d6362d8da00cfaa70d9a1df \
-b594a5e7e91af46d749e022b06512d753472d324 \
-d09b8b302cad75835420d928cfc17f6c585f3c8c
+21349d858b6b \
+60cfd7b1e096 \
+b594a5e7e91a \
+d09b8b302cad
 ```
 
 ### Patch Xcode SDK
